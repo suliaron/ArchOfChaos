@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
 
 struct InitData {
@@ -34,7 +35,7 @@ public:
         ie_(0),
         da_((data.a1 - data.a0) / static_cast<double>(data.Na)),
         de_((data.e1 - data.e0) / static_cast<double>(data.Ne))
-    {}
+    { }
 
     double a() const
     {
@@ -88,8 +89,10 @@ int main()
     GridIterator grid(init);
 
     do {
-        std::cout << "a = " << grid.a()
-            << ", e = " << grid.e() << '\n';
+        std::cout << std::fixed << std::setprecision(6)
+            << "a = " << std::setw(10) << grid.a()
+            << ", e = " << std::setw(10) << grid.e()
+            << '\n';
     } while (grid.next());
 
     return 0;
