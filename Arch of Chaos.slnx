@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Arch of Chaos.vcxproj" />
+  <Project Path="Arch of Chaos.vcxproj" Id="086fdf82-e76e-48da-9e30-e81de560cdfb" />
 </Solution>
