@@ -88,7 +88,7 @@ int main()
 
     GridIterator grid(init);
 
-    do {
+	std::cout << grid.header() << '\n';
         std::cout << std::fixed << std::setprecision(6)
             << "a = " << std::setw(10) << grid.a()
             << ", e = " << std::setw(10) << grid.e()
