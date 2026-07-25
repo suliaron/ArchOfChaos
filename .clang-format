@@ -50,6 +50,8 @@ AlignConsecutiveDeclarations: true
 AlignOperands: Align
 AlignTrailingComments: true
 
+NamespaceIndentation: All
+
 # Switch statements
 IndentCaseLabels: true
 

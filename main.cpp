@@ -1,6 +1,7 @@
 #include <cstddef>    // std::size_t
 #include <cstdint>    // std::uint32_t
 #include <exception>  // std::exception
+#include <format>     // std::format
 #include <iomanip>    // std::fixed, std::setprecision, std::setw
 #include <iostream>   // std::cout, std::cerr
 #include <memory>     // std::unique_ptr, std::make_unique
@@ -59,19 +60,20 @@ struct InitData {
  * is incremented first, followed by the eccentricity.
  */
 class GridIterator {
-public:
+   public:
     /**
      * @brief Constructs a grid iterator.
      *
      * @param data Grid definition.
      */
-    explicit GridIterator(const InitData& data)
+    explicit GridIterator(const InitData &data)
         : data_(data),
-        ia_(0),
-        ie_(0),
-        da_((data.a1 - data.a0) / static_cast<double>(data.Na)),
-        de_((data.e1 - data.e0) / static_cast<double>(data.Ne))
-    {}
+          ia_(0),
+          ie_(0),
+          da_((data.a1 - data.a0) / static_cast<double>(data.Na)),
+          de_((data.e1 - data.e0) / static_cast<double>(data.Ne))
+    {
+    }
 
     /**
      * @brief Returns the current semimajor axis.
@@ -125,9 +127,9 @@ public:
         return false;
     }
 
-private:
+   private:
     /// Grid definition.
-    const InitData& data_;
+    const InitData &data_;
 
     /// Current semimajor-axis index.
     std::uint32_t ia_;
@@ -162,14 +164,38 @@ std::unique_ptr<T[]> allocate_array(std::size_t n)
     return std::make_unique<T[]>(n);
 }
 
-void getInitialCondition(double a, double e, double *x)
-{
-}
+namespace {
+    void getInitialCondition(double mu, double a, double e, double *x)
+    {
+        x[0] = a * (1.0 - e) - mu;                                      /// x_0
+        x[1] = 0.0;                                                     /// y_0
+        x[2] = 0.0;                                                     /// vx_0
+        x[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - x[0];  /// vy_0
+    }
+
+    void printInitialCondition(const GridIterator &grid, const double *x)
+    {
+        static bool first = true;
+
+        if (first) {
+            std::cout << grid.header() << "         x"
+                      << "         y"
+                      << "         vx"
+                      << "        vy" << '\n';
+            first = false;
+        }
+        std::cout << std::fixed << std::setprecision(6) << std::setw(10) << grid.a() << std::setw(10) << grid.e()
+                  << std::setw(10) << x[0] << std::setw(10) << x[1] << std::setw(10) << x[2] << std::setw(10) << x[3]
+                  << '\n';
+    }
+
+}  // namespace
 
 int main()
 {
     try {
         InitData init;
+        init.mu = 1.0e-3;
         init.a0 = 1.0;
         init.a1 = 2.0;
         init.Na = 4;
@@ -180,19 +206,20 @@ int main()
 
         GridIterator grid(init);
 
-        std::cout << grid.header() << '\n';
+        std::unique_ptr<double[]> x =
+            allocate_array<double>(4);  // Allocate an array of 4 doubles for initial conditions
+
         do {
-            std::cout << std::fixed << std::setprecision(6)
-                << std::setw(10) << grid.a()
-                << std::setw(10) << grid.e() << '\n';
+            double a = grid.a();
+            double e = grid.e();
+            getInitialCondition(init.mu, a, e, x.get());  // Get initial conditions for the current (a,e)
+            printInitialCondition(grid, x.get());         // Print the initial conditions
         } while (grid.next());
 
         return EXIT_SUCCESS;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << '\n';
-    }
-    catch (...) {
+    } catch (...) {
         std::cerr << "Unknown error.\n";
     }
 
