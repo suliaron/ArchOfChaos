@@ -1,6 +1,7 @@
 #include <algorithm>  // std::copy, std::copy_n
 #include <cstddef>    // std::size_t
 #include <cstdint>    // std::uint32_t
+#include <cmath>      // Mathematical functions (std::sqrt, std::abs).
 #include <exception>  // std::exception
 #include <format>     // std::format
 #include <iomanip>    // std::fixed, std::setprecision, std::setw
@@ -17,6 +18,8 @@ static constexpr double TWO_PI = 2.0 * PI;
 
 static constexpr double kG  = 1.720209895e-2;
 static constexpr double kG2 = 2.9591220828559110e-4;
+
+constexpr double TIME_EPS = 1.0e-15;
 
 typedef double var_t;
 /* prototype of the right-hand side of the diff. eq. system */
@@ -48,8 +51,10 @@ inline T sqr(T x) noexcept
  * elements used to generate the initial conditions.
  */
 struct InitData {
-    /// Initial epoch [day].
+    /// Initial epoch [time unit].
     double t0 = 0.0;
+    /// Length of integration [time unit].
+    double T = 0.0;
 
     /// Mass parameter.
     double mu = 0.0;
@@ -83,6 +88,20 @@ struct InitData {
 
     /// Destroys the initialization data structure.
     ~InitData() = default;
+};
+
+/**
+ * @brief Adaptive step-size control parameters.
+ *
+ * Stores the current, accepted, proposed, and allowed integration
+ * step sizes used by the adaptive Runge–Kutta integrator.
+ */
+struct StepControl {
+    double h     = 0.0;  ///< Current integration step size.
+    double h_nxt = 0.0;  ///< Proposed step size for the next step.
+    double h_did = 0.0;  ///< Accepted step size of the current step.
+    double h_max = 0.0;  ///< Maximum allowed step size.
+    double h_min = 0.0;  ///< Minimum allowed step size.
 };
 
 /**
@@ -200,36 +219,42 @@ namespace model {
     struct CRTBP2DParams {
         double mu;
     };
-
-    void CRTBP2Dfun(double t, const double *y, double *dydx, void *par)
+    /**
+     * @brief Computes the right-hand side of the planar circular restricted three-body problem.
+     *
+     * Evaluates the first-order equations of motion in the rotating (synodic)
+     * reference frame. The state vector is defined as
+     * y = (x, y, vx, vy), and the output vector contains the corresponding
+     * time derivatives
+     * dydt = (dx/dt, dy/dt, dvx/dt, dvy/dt).
+     *
+     * @param t Current time (unused, as the equations are autonomous).
+     * @param y Input state vector (x, y, vx, vy).
+     * @param dydt Output time derivatives of the state vector.
+     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
+     */
+    void CRTBP2Dfun(double t, const double *y, double *dydt, void *par)
     {
-        static const CRTBP2DParams *p  = static_cast<const CRTBP2DParams *>(par);
-        static double               mu = (p->mu);
+        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
+        const double mu = p->mu;
 
-        double r1   = std::sqrt(sqr(y[0] + mu) + sqr(y[1]));
-        double r2   = std::sqrt(sqr(y[0] - 1.0 + mu) + sqr(y[1]));
-        double r1_3 = 1.0 / (r1 * r1 * r1);
-        double r2_3 = 1.0 / (r2 * r2 * r2);
+        const double r1 = std::sqrt(sqr(y[0] + mu) + sqr(y[1]));
+        const double r2 = std::sqrt(sqr(y[0] - 1.0 + mu) + sqr(y[1]));
 
-        // equations of motion in the rotating frame
+        const double r1_3 = 1.0 / (r1 * r1 * r1);
+        const double r2_3 = 1.0 / (r2 * r2 * r2);
 
-        // dx/dt
-        dydx[0] = y[2];
-
-        // dy/dt
-        dydx[1] = y[3];
-
-        // dpx/dt
-        dydx[2] = 2 * y[3] + y[0] - (1 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1 + mu) * r2_3;
-
-        // dpy/dt
-        dydx[3] = -2 * y[2] + y[1] * (1 - (1 - mu) * r1_3 - mu * r2_3);
+        // Equations of motion in the rotating frame.
+        dydt[0] = y[2];                                                                                 ///< dx/dt
+        dydt[1] = y[3];                                                                                 ///< dy/dt
+        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;  ///< dvx/dt
+        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);                           ///< dvy/dt
     }
 }  // namespace model
 
 namespace ode_integrator {
-    var_t rkf54(var_t t, var_t h, var_t *h_nxt, var_t *y_in, var_t *y_out, int n_var, var_t relTol, var_t absTol,
-                rhs_t *fun, void *par)
+    void rkf54(var_t t, StepControl &step, var_t *y_in, var_t *y_out, int n_var, var_t relTol, var_t absTol, rhs_t *fun,
+               void *par)
     {
         static const double Bi[] = {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0, 0.0};
 
@@ -248,20 +273,19 @@ namespace ode_integrator {
         static auto y  = allocate_array<double>(n_var);     ///< Allocate memory for y
 
         double t0    = t;
-        double h_did = 0.0;
         var_t  temax = 0.0;
 
         fun(t0, y_in, dy.get(), par);
         do {
             temax = 0.0;
             for (int k = 1; k < 7; k++) {
-                t = t0 + Ci[k] * h;
+                t = t0 + Ci[k] * step.h;
 
                 for (int n = 0; n < n_var; n++) {
                     y[n] = y_in[n];
 
                     for (int l = 0; l < k; l++)
-                        y[n] += h * Aij[k][l] * dy[l * n_var + n];
+                        y[n] += step.h * Aij[k][l] * dy[l * n_var + n];
                 }
                 fun(t, y.get(), dy.get() + k * n_var, par);
             }
@@ -270,20 +294,19 @@ namespace ode_integrator {
                 y_out[n] = y_in[n];
 
                 for (int k = 0; k < 7; ++k) {
-                    y_out[n] += h * Bi[k] * dy[k * n_var + n];
+                    y_out[n] += step.h * Bi[k] * dy[k * n_var + n];
                 }
-                const var_t err = h * std::fabs(dy[5 * n_var + n] - dy[6 * n_var + n]) / 60.0;
+                const var_t err = step.h * std::fabs(dy[5 * n_var + n] - dy[6 * n_var + n]) / 60.0;
                 const var_t tol = absTol + relTol * std::max(std::fabs(y_in[n]), std::fabs(y_out[n]));
 
                 if (err / tol > temax) {
                     temax = err / tol;
                 }
             }
-            h_did = h;
-            h     = 0.9 * h * std::pow(1.0 / temax, 1.0 / 5.0);
+            step.h_did = step.h;
+            step.h     = 0.9 * step.h_did * std::pow(1.0 / temax, 1.0 / 5.0);
         } while (temax > 1.0);
-        *h_nxt = h;
-        return h_did;
+        step.h_nxt = step.h;
     }
 }  // namespace ode_integrator
 
@@ -293,12 +316,12 @@ namespace {
         std::cout << PROGRAM_NAME << " version " << PROGRAM_VERSION << '\n';
     }
 
-    void getInitialCondition(double mu, double a, double e, double *x)
+    void getInitialCondition(double mu, double a, double e, double *y)
     {
-        x[0] = a * (1.0 - e) - mu;                                      /// x_0
-        x[1] = 0.0;                                                     /// y_0
-        x[2] = 0.0;                                                     /// vx_0
-        x[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - x[0];  /// vy_0
+        y[0] = a * (1.0 - e) - mu;                                      /// x_0
+        y[1] = 0.0;                                                     /// y_0
+        y[2] = 0.0;                                                     /// vx_0
+        y[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - y[0];  /// vy_0
     }
 
     void printInitialCondition(const GridIterator &grid, const double *x)
@@ -317,6 +340,42 @@ namespace {
                   << '\n';
     }
 
+    /**
+     * @brief Prints the current integration state.
+     *
+     * Prints the current time and the state vector
+     * (x, y, vx, vy) in a fixed-width formatted table.
+     *
+     * @param t Current integration time.
+     * @param y State vector (x, y, vx, vy).
+     */
+    void printState(double t, const double *y)
+    {
+        std::cout << std::fixed << std::setprecision(6) << std::setw(10) << t << std::setw(10) << y[0] << std::setw(10)
+                  << y[1] << std::setw(10) << y[2] << std::setw(10) << y[3] << '\n';
+    }
+
+    /**
+     * @brief Limits the current integration step size.
+     *
+     * Ensures that the current step does not extend beyond the final
+     * integration time. If @c step.h_max is positive, the step size is
+     * also limited to the specified maximum value.
+     *
+     * @param t Current integration time.
+     * @param T Final integration time.
+     * @param step Step-size control parameters.
+     */
+    void limitStep(double t, double T, StepControl &step)
+    {
+        if (t + step.h > T) {
+            step.h = T - t;
+        }
+
+        if (step.h_max > 0.0 && step.h > step.h_max) {
+            step.h = step.h_max;
+        }
+    }
 }  // namespace
 
 int main()
@@ -329,8 +388,9 @@ int main()
 
         InitData init;
         init.t0 = 0.0;
-        init.a0 = 1.0;
-        init.a1 = 2.0;
+        init.T  = 10.0;
+        init.a0 = 2.0;
+        init.a1 = 3.0;
         init.Na = 4;
 
         init.e0 = 0.0;
@@ -344,29 +404,37 @@ int main()
         std::unique_ptr<double[]> y_out =
             allocate_array<double>(4);  // Allocate an array of 4 doubles for intermedient results
 
-        int    n_var = 4;  // Number of variables in the system (x, y, vx, vy)
-        double h     = 0.1;
-        // double tol = 1.0e-16;
+        int    n_var  = 4;  // Number of variables in the system (x, y, vx, vy)
         double relTol = 1.0e-6;
         double absTol = 1.0e-10;
+        double t      = init.t0;
         do {
             double a = grid.a();
             double e = grid.e();
-            getInitialCondition(param.mu, a, e, y_in.get());  // Get initial conditions for the current (a,e)
-            printInitialCondition(grid, y_in.get());          // Print the initial conditions
+            //getInitialCondition(param.mu, a, e, y_in.get());  // Get initial conditions for the current (a,e)
+            y_in[0] = 0.5 - param.mu;
+            y_in[1] = std::sqrt(3.0) / 2.0;
+            y_in[2] = 0.0;
+            y_in[3] = 0.0;
+            //printInitialCondition(grid, y_in.get());          // Print the initial conditions
+            std::cout << "----------------------------------------\n";
 
-            double t     = init.t0;
-            double h_nxt = h;
-            double h_did = 0;
+            t = init.t0;
+            StepControl step;  // Step control structure for adaptive integration
+            step.h       = 0.1;
+            step.h_max   = 0.1;
+            step.h_nxt   = step.h;
+            printState(t, y_in.get());  // Print the current state (time and variables)
             do {
-                h_did = ode_integrator::rkf54(t, h, &h_nxt, y_in.get(), y_out.get(), n_var, relTol, absTol,
-                                              model::CRTBP2Dfun, (void *)&param);
+                limitStep(t, init.T, step);  // Limit the step size to not exceed the final time
+                ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol, model::CRTBP2Dfun,
+                                      (void *)&param);
                 std::copy_n(y_out.get(), n_var, y_in.get());
-                std::cout << std::fixed << std::setprecision(6) << std::setw(10) << t << std::setw(10) << y_out[0]
-                          << std::setw(10) << y_out[1] << std::setw(10) << y_out[2] << std::setw(10) << y_out[3] << '\n';
-                h = h_nxt;
-                t += h_did;
-            } while (t < 10.0);
+                t += step.h_did;
+                printState(t, y_in.get());  // Print the current state (time and variables)
+            } while (std::abs(init.T - t) > 1.0e-10);
+
+            break;
         } while (grid.next());
 
         return EXIT_SUCCESS;
