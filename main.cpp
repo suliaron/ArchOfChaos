@@ -1,14 +1,18 @@
-#include <algorithm>  // std::copy, std::copy_n
-#include <cstddef>    // std::size_t
-#include <cstdint>    // std::uint32_t
-#include <cmath>      // Mathematical functions (std::sqrt, std::abs).
-#include <exception>  // std::exception
-#include <format>     // std::format
-#include <iomanip>    // std::fixed, std::setprecision, std::setw
-#include <iostream>   // std::cout, std::cerr
-#include <memory>     // std::unique_ptr, std::make_unique
-#include <new>        // std::bad_alloc
-#include <stdexcept>  // std::invalid_argument, std::runtime_error
+#include <algorithm>   // std::copy, std::copy_n
+#include <cstddef>     // std::size_t
+#include <cstdint>     // std::uint32_t
+#include <cmath>       // Mathematical functions (std::sqrt, std::abs).
+#include <exception>   // std::exception
+#include <filesystem>  // std::filesystem::path for portable path handling.
+#include <format>      // std::format
+#include <iomanip>     // std::fixed, std::setprecision, std::setw
+#include <iostream>    // std::cout, std::cerr
+#include <memory>      // std::unique_ptr, std::make_unique
+#include <new>         // std::bad_alloc
+#include <stdexcept>   // std::invalid_argument, std::runtime_error
+#include <string>      // std::string
+
+namespace fs = std::filesystem;
 
 static constexpr const char *PROGRAM_NAME    = "archofchaos";
 static constexpr const char *PROGRAM_VERSION = "1.1.0";
@@ -26,22 +30,25 @@ typedef double var_t;
 typedef void rhs_t(double x, const double *y, double *dy, void *par);
 
 /**
- * @brief Returns the square of @p x.
+ * @brief Command-line options.
  *
- * Computes @c x*x using a single evaluation of the argument, avoiding the
- * multiple-evaluation pitfalls of function-like macros (e.g. @c SQR(x)).
- *
- * @tparam T  A type supporting multiplication (@c operator*).
- * @param x   Input value.
- * @return    The value @c x*x.
- *
- * @note This function does not check for overflow/underflow.
+ * Stores the input and output file and directory names together with
+ * flags controlling the display of help and version information.
  */
-template <typename T>
-inline T sqr(T x) noexcept
-{
-    return (x * x);
-}
+struct CommandLineOptions {
+    /** Input file name. */
+    std::string input_path;
+    /** Input directory. */
+    std::string input_dir = ".";
+    /** Output file name. */
+    std::string output_path;
+    /** Output directory. */
+    std::string output_dir = ".";
+    /** Display help message. */
+    bool show_help = false;
+    /** Display program version. */
+    bool show_version = false;
+};
 
 /**
  * @brief Stores the input parameters of the simulation.
@@ -196,6 +203,24 @@ class GridIterator {
 };
 
 /**
+ * @brief Returns the square of @p x.
+ *
+ * Computes @c x*x using a single evaluation of the argument, avoiding the
+ * multiple-evaluation pitfalls of function-like macros (e.g. @c SQR(x)).
+ *
+ * @tparam T  A type supporting multiplication (@c operator*).
+ * @param x   Input value.
+ * @return    The value @c x*x.
+ *
+ * @note This function does not check for overflow/underflow.
+ */
+template <typename T>
+inline T sqr(T x) noexcept
+{
+    return (x * x);
+}
+
+/**
  * @brief Allocates an array of n elements of type T.
  *
  * @tparam T Element type.
@@ -316,6 +341,62 @@ namespace {
         std::cout << PROGRAM_NAME << " version " << PROGRAM_VERSION << '\n';
     }
 
+    /**
+     * @brief Parses the command-line arguments.
+     *
+     * Processes the supported command-line options and stores the results
+     * in the supplied CommandLineOptions structure. The input and output
+     * directory names are automatically extracted from the corresponding
+     * file paths. If no directory is specified, the current working
+     * directory (".") is used.
+     *
+     * Supported options:
+     *   -i <path>    Input file.
+     *   -o <path>    Output file.
+     *   -h           Display help message.
+     *   --help       Display help message.
+     *   -v           Display program version.
+     *   --version    Display program version.
+     *
+     * @param[in] argc Number of command-line arguments.
+     * @param[in] argv Command-line argument vector.
+     * @param[out] opt Parsed command-line options.
+     *
+     * @throws std::runtime_error
+     *         If an unknown option is encountered or if a required
+     *         argument is missing.
+     */
+    void parse_command_line(int argc, char *argv[], CommandLineOptions &opt)
+    {
+        for (int i = 1; i < argc; ++i) {
+            const std::string arg(argv[i]);
+
+            if (arg == "-i") {
+                if (++i >= argc)
+                    throw std::runtime_error("Missing argument after '-i'.");
+
+                fs::path p(argv[i]);
+
+                opt.input_path = p.filename().string();
+                opt.input_dir  = p.has_parent_path() ? p.parent_path().string() : ".";
+            } else if (arg == "-o") {
+                if (++i >= argc)
+                    throw std::runtime_error("Missing argument after '-o'.");
+
+                fs::path p(argv[i]);
+
+                opt.output_path = p.filename().string();
+                opt.output_dir  = p.has_parent_path() ? p.parent_path().string() : ".";
+            } else if (arg == "-h" || arg == "--help") {
+                opt.show_help = true;
+            } else if (arg == "-v" || arg == "--version") {
+                opt.show_version = true;
+            } else {
+                throw std::runtime_error("Unknown command-line option: " + arg);
+            }
+        }
+    }
+
     void getInitialCondition(double mu, double a, double e, double *y)
     {
         y[0] = a * (1.0 - e) - mu;                                      /// x_0
@@ -411,19 +492,19 @@ int main()
         do {
             double a = grid.a();
             double e = grid.e();
-            //getInitialCondition(param.mu, a, e, y_in.get());  // Get initial conditions for the current (a,e)
+            // getInitialCondition(param.mu, a, e, y_in.get());  // Get initial conditions for the current (a,e)
             y_in[0] = 0.5 - param.mu;
             y_in[1] = std::sqrt(3.0) / 2.0;
             y_in[2] = 0.0;
             y_in[3] = 0.0;
-            //printInitialCondition(grid, y_in.get());          // Print the initial conditions
+            // printInitialCondition(grid, y_in.get());          // Print the initial conditions
             std::cout << "----------------------------------------\n";
 
             t = init.t0;
             StepControl step;  // Step control structure for adaptive integration
-            step.h       = 0.1;
-            step.h_max   = 0.1;
-            step.h_nxt   = step.h;
+            step.h     = 0.1;
+            step.h_max = 0.1;
+            step.h_nxt = step.h;
             printState(t, y_in.get());  // Print the current state (time and variables)
             do {
                 limitStep(t, init.T, step);  // Limit the step size to not exceed the final time
