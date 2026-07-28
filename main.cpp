@@ -33,6 +33,16 @@ typedef double var_t;
 typedef void rhs_t(double x, const double *y, double *dy, void *par);
 
 /**
+ * @brief Computation modes.
+ */
+enum class ComputeMode {
+    ORBIT,  ///< Integrate only the orbit.
+    FLI,    ///< Fast Lyapunov Indicator.
+    LCI,    ///< Lyapunov Characteristic Indicator.
+    RLI     ///< Relative Lyapunov Indicator.
+};
+
+/**
  * @brief Command-line options.
  *
  * Stores the input and output file and directory names together with
@@ -61,7 +71,7 @@ struct CommandLineOptions {
      *
      * @param os Output stream.
      */
-    void print(std::ostream& os = std::cout) const
+    void print(std::ostream &os = std::cout) const
     {
         os << "----------------------------------------\n";
         os << "Command-line options\n";
@@ -84,6 +94,10 @@ struct CommandLineOptions {
  * elements used to generate the initial conditions.
  */
 struct InitData {
+    /**
+     * @brief Computation mode.
+     */
+    ComputeMode compute = ComputeMode::ORBIT;
     /// Mass parameter.
     double mu = 0.0;
 
@@ -94,7 +108,7 @@ struct InitData {
 
     /// Minimum semimajor axis.
     double a0 = 0.0;
-        /// Maximum semimajor axis.
+    /// Maximum semimajor axis.
     double a1 = 0.0;
     /// Number of semimajor-axis intervals.
     std::uint32_t Na = 0;
@@ -106,13 +120,18 @@ struct InitData {
     /// Number of eccentricity intervals.
     std::uint32_t Ne = 0;
 
+    /**
+     * @brief Initial condition for the variational equations.
+     */
+    double dy[4] = {1.0, 0.0, 0.0, 0.0};
+
     /// Constructs an empty initialization data structure.
     InitData() = default;
 
     /// Destroys the initialization data structure.
     ~InitData() = default;
 
-    void print(std::ostream& os = std::cout) const
+    void print(std::ostream &os = std::cout) const
     {
         os << std::scientific << std::setprecision(6) << std::showpos;
 
@@ -122,18 +141,44 @@ struct InitData {
         os << "InitData contents\n";
         os << "----------------------------------------\n";
 
-        os << "mu    = " << std::setw(W) << mu << "\n";
+        os << "compute : " << computeModeToString(compute) << "\n";
+        os << "mu = " << std::setw(W) << mu << "\n";
+        os << "t0 = " << std::setw(W) << t0 << " [time unit]\n";
+        os << "T  = " << std::setw(W) << T << " [time unit]\n";
+        os << "a0 = " << std::setw(W) << a0 << " [distance unit]\n";
+        os << "a1 = " << std::setw(W) << a1 << " [distance unit]\n";
+        os << "Na = " << std::setw(W) << Na << '\n';
+        os << "e0 = " << std::setw(W) << e0 << '\n';
+        os << "e1 = " << std::setw(W) << e1 << '\n';
+        os << "Ne = " << std::setw(W) << Ne << '\n';
+        if (compute == ComputeMode::FLI || compute == ComputeMode::LCI || compute == ComputeMode::RLI) {
+            os << "dy1 = " << std::setw(W) << dy[0] << '\n';
+            os << "dy2 = " << std::setw(W) << dy[1] << '\n';
+            os << "dy3 = " << std::setw(W) << dy[2] << '\n';
+            os << "dy4 = " << std::setw(W) << dy[3] << '\n';
+        }
+    }
 
-        os << "t0    = " << std::setw(W) << t0 << " [time unit]\n";
-        os << "T     = " << std::setw(W) << T << " [time unit]\n";
+    /**
+     * @brief Returns the name of a computation mode.
+     *
+     * @param mode Computation mode.
+     * @return Mode name.
+     */
+    const char *computeModeToString(const ComputeMode mode) const
+    {
+        switch (mode) {
+            case ComputeMode::ORBIT:
+                return "ORBIT";
+            case ComputeMode::FLI:
+                return "FLI";
+            case ComputeMode::LCI:
+                return "LCI";
+            case ComputeMode::RLI:
+                return "RLI";
+        }
 
-        os << "a0    = " << std::setw(W) << a0 << " [distance unit]\n";
-        os << "a1    = " << std::setw(W) << a1 << " [distance unit]\n";
-        os << "Na    = " << std::setw(W) << Na << '\n';
-
-        os << "e0    = " << std::setw(W) << e0 << '\n';
-        os << "e1    = " << std::setw(W) << e1 << '\n';
-        os << "Ne    = " << std::setw(W) << Ne << '\n';
+        return "UNKNOWN";
     }
 };
 
@@ -284,8 +329,7 @@ namespace model {
     /**
      * @brief Parameters of the planar circular restricted three-body problem.
      */
-    struct CRTBP2DParams
-    {
+    struct CRTBP2DParams {
         /**
          * @brief Gravitational mass parameter.
          */
@@ -296,9 +340,9 @@ namespace model {
          *
          * @param mu Gravitational mass parameter.
          */
-        explicit CRTBP2DParams(double mu)
-            : mu(mu)
-        {}
+        explicit CRTBP2DParams(double mu) : mu(mu)
+        {
+        }
     };
 
     /**
@@ -317,6 +361,8 @@ namespace model {
      */
     void CRTBP2Dfun(double t, const double *y, double *dydt, void *par)
     {
+        (void)t;  // Suppress unused parameter warning.
+
         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
         const double mu = p->mu;
 
@@ -332,11 +378,59 @@ namespace model {
         dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;  ///< dvx/dt
         dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);                           ///< dvy/dt
     }
+
+    /**
+     * @brief Computes the right-hand side of the planar CRTBP and its variational equations.
+     *
+     * Evaluates the equations of motion and one deviation vector in the rotating
+     * (synodic) reference frame. The state vector is defined as
+     * y = (x, y, vx, vy, dx, dy, dvx, dvy).
+     *
+     * @param t Current time (unused, as the equations are autonomous).
+     * @param y Input state vector and deviation vector.
+     * @param dydt Output derivatives of the state and deviation vectors.
+     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
+     */
+    void CRTBP2DVariationalFun(double t, const double *y, double *dydt, void *par)
+    {
+        (void)t;  // Suppress unused parameter warning.
+
+        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
+        const double mu = p->mu;
+
+        const double r1 = std::sqrt(sqr(y[0] + mu) + sqr(y[1]));
+        const double r2 = std::sqrt(sqr(y[0] - 1.0 + mu) + sqr(y[1]));
+
+        const double r1_3 = 1.0 / (r1 * r1 * r1);
+        const double r2_3 = 1.0 / (r2 * r2 * r2);
+        const double r1_5 = r1_3 / (r1 * r1);
+        const double r2_5 = r2_3 / (r2 * r2);
+
+        // Equations of motion in the rotating frame.
+        dydt[0] = y[2];
+        dydt[1] = y[3];
+        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
+        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
+
+        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * sqr(y[0] + mu) * r1_5 +
+                            3.0 * mu * sqr(y[0] - 1.0 + mu) * r2_5;
+
+        const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] * r2_5;
+
+        const double O_yy =
+            1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * sqr(y[1]) * r1_5 + 3.0 * mu * sqr(y[1]) * r2_5;
+
+        // Variational equations for one deviation vector.
+        dydt[4] = y[6];
+        dydt[5] = y[7];
+        dydt[6] = O_xx * y[4] + O_xy * y[5] + 2.0 * y[7];
+        dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
+    }
 }  // namespace model
 
 namespace ode_integrator {
-    void rkf54(var_t t, StepControl &step, var_t *y_in, var_t *y_out, int n_var, var_t relTol, var_t absTol, rhs_t *fun,
-               void *par)
+    void rkf54(var_t &t, StepControl &step, var_t *y_in, var_t *y_out, int n_var, var_t relTol, var_t absTol,
+               rhs_t *fun, void *par)
     {
         static const double Bi[] = {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0, 0.0};
 
@@ -389,6 +483,7 @@ namespace ode_integrator {
             step.h     = 0.9 * step.h_did * std::pow(1.0 / temax, 1.0 / 5.0);
         } while (temax > 1.0);
         step.h_nxt = step.h;
+        t += step.h_did;
     }
 }  // namespace ode_integrator
 
@@ -499,6 +594,36 @@ namespace {
     }
 
     /**
+     * @brief Converts a string to a computation mode.
+     *
+     * @param text Computation mode as text.
+     * @return Corresponding computation mode.
+     *
+     * @throw std::runtime_error If the mode is unknown.
+     */
+    ComputeMode parseComputeMode(const std::string &text)
+    {
+        std::string mode(text);
+        std::transform(mode.begin(), mode.end(), mode.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+        if (mode == "ORBIT") {
+            return ComputeMode::ORBIT;
+        }
+        if (mode == "FLI") {
+            return ComputeMode::FLI;
+        }
+        if (mode == "LCI") {
+            return ComputeMode::LCI;
+        }
+        if (mode == "RLI") {
+            return ComputeMode::RLI;
+        }
+
+        throw std::runtime_error("Unknown computation mode: " + text);
+    }
+
+    /**
      * @brief Parses a single line of the initialization file.
      *
      * Comment lines and empty lines are ignored.
@@ -533,8 +658,12 @@ namespace {
         const std::string key   = text.substr(0, pos);
         const std::string value = text.substr(pos + 1);
 
-        std::istringstream is(value);
+        if (key == "compute") {
+            data.compute = parseComputeMode(value);
+            return;
+        }
 
+        std::istringstream is(value);
         if (key == "mu") {
             is >> data.mu;
         } else if (key == "t0") {
@@ -553,6 +682,14 @@ namespace {
             is >> data.e1;
         } else if (key == "Ne") {
             is >> data.Ne;
+        } else if (key == "dy1") {
+            is >> data.dy[0];
+        } else if (key == "dy2") {
+            is >> data.dy[1];
+        } else if (key == "dy3") {
+            is >> data.dy[2];
+        } else if (key == "dy4") {
+            is >> data.dy[3];
         } else {
             throw std::runtime_error("Unknown keyword: " + key);
         }
@@ -635,6 +772,28 @@ namespace {
         return data;
     }
 
+    int setN_var(ComputeMode mode)
+    {
+        int n_var = 0;
+        switch (mode) {
+            case ComputeMode::ORBIT:
+                n_var = 4;  // Number of variables in the system (x, y, vx, vy)
+                break;
+            case ComputeMode::FLI:
+                n_var = 8;  // Orbit and variational equations (4 state + 4 deviation variables).
+                break;
+            case ComputeMode::LCI:
+                n_var = 8;  // Orbit and variational equations (4 state + 4 deviation variables).
+                break;
+            case ComputeMode::RLI:  // Two sets of orbit and variational equations
+                n_var = 16;         // Two sets of initial conditions (4 state + 4 deviation variables).
+                break;
+            default:
+                throw std::runtime_error("Unknown computation mode.");
+        }
+        return n_var;
+    }
+
     /**
      * @brief Prints all input parameters.
      *
@@ -644,7 +803,7 @@ namespace {
      * @param options Parsed command-line options.
      * @param init Input data read from the initialization file.
      */
-    void print_input_data(const CommandLineOptions &options, const InitData &init, std::ostream& os = std::cout)
+    void print_input_data(const CommandLineOptions &options, const InitData &init, std::ostream &os = std::cout)
     {
         os << '\n';
         os << "============================================================\n";
@@ -665,7 +824,7 @@ namespace {
      * @param param CRTBP parameters.
      * @param y State vector [x, y, vx, vy].
      */
-    void initialize_L4(const model::CRTBP2DParams& param, double* y)
+    void initialize_L4(const model::CRTBP2DParams &param, double *y)
     {
         y[0] = 0.5 - param.mu;
         y[1] = std::sqrt(3.0) / 2.0;
@@ -711,14 +870,13 @@ namespace {
      *
      * @throws std::runtime_error If the output file cannot be opened.
      */
-    std::ostream* open_output_stream(const CommandLineOptions& opt, std::ofstream& fout)
+    std::ostream *open_output_stream(const CommandLineOptions &opt, std::ofstream &fout)
     {
         if (opt.output_path.empty()) {
             return &std::cout;
         }
 
-        const std::filesystem::path output_file =
-            std::filesystem::path(opt.output_dir) / opt.output_path;
+        const std::filesystem::path output_file = std::filesystem::path(opt.output_dir) / opt.output_path;
 
         fout.open(output_file);
 
@@ -730,25 +888,30 @@ namespace {
     }
 
     /**
-     * @brief Prints the current integration state.
+     * @brief Prints the current time and all components of a state vector.
      *
-     * Prints the current time and the state vector
-     * (x, y, vx, vy) in a fixed-width formatted table.
+     * The values are written in scientific notation so that very small and very
+     * large numbers can be displayed in uniformly sized columns.
      *
      * @param os Output stream.
-     * @param t Current integration time.
-     * @param y State vector (x, y, vx, vy).
+     * @param t Current time.
+     * @param y State vector.
+     * @param n Number of elements in the state vector.
+     * @param newline If @c true, a newline is appended after the output.
      */
-    void printState(std::ostream& os, double t, const double* y)
+    void printState(std::ostream &os, double t, const double *y, std::size_t n, bool newline = true)
     {
-        os << std::fixed
-            << std::setprecision(6)
-            << std::setw(10) << t
-            << std::setw(10) << y[0]
-            << std::setw(10) << y[1]
-            << std::setw(10) << y[2]
-            << std::setw(10) << y[3]
-            << '\n';
+        constexpr int field_width = 18;
+        constexpr int precision   = 10;
+
+        os << std::scientific << std::showpos << std::setprecision(precision) << std::setw(field_width) << t;
+
+        for (std::size_t i = 0; i < n; ++i) {
+            os << std::setw(field_width) << y[i];
+        }
+
+        if (newline)
+            os << '\n';
     }
 
     /**
@@ -774,6 +937,69 @@ namespace {
     }
 }  // namespace
 
+namespace chaos_indicator {
+    /**
+     * @brief Computes the Fast Lyapunov Indicator from a deviation vector.
+     *
+     * The FLI is defined as the maximum logarithmic norm of the deviation vector
+     * attained up to the current integration time:
+     *
+     * FLI(t) = max(FLI_previous, log(||delta y(t)||)).
+     *
+     * The deviation vector is stored in elements y[4], ..., y[7].
+     *
+     * @param y State vector containing the orbit and the deviation vector.
+     * @param previous_fli Largest FLI value obtained before the current step.
+     * @return Updated FLI value.
+     *
+     * @throws std::domain_error If the deviation-vector norm is zero.
+     */
+    double computeFLI(const double *y, double previous_fli)
+    {
+        const double norm = std::sqrt(sqr(y[4]) + sqr(y[5]) + sqr(y[6]) + sqr(y[7]));
+
+        return std::max(previous_fli, std::log(norm));
+    }
+
+    /**
+     * @brief Computes the Lyapunov Characteristic Indicator.
+     *
+     * The LCI is the finite-time approximation of the largest Lyapunov exponent:
+     *
+     * LCI(t) = log(||delta y(t)|| / ||delta y(t0)||) / (t - t0).
+     *
+     * The current deviation vector is stored in elements y[4], ..., y[7].
+     *
+     * @param t Current integration time.
+     * @param t0 Initial integration time.
+     * @param y State vector containing the orbit and the current deviation vector.
+     * @param initial_deviation Initial deviation vector with four components.
+     * @return Current value of the Lyapunov Characteristic Indicator.
+     *
+     * @throws std::domain_error If the elapsed time or either deviation-vector norm
+     *         is zero.
+     */
+    double computeLCI(double t, double t0, const double *y, const double *initial_deviation)
+    {
+        const double elapsed_time = t - t0;
+
+        if (elapsed_time == 0.0) {
+            throw std::domain_error("Cannot compute LCI at the initial time.");
+        }
+
+        const double current_norm = std::sqrt(sqr(y[4]) + sqr(y[5]) + sqr(y[6]) + sqr(y[7]));
+
+        const double initial_norm = std::sqrt(sqr(initial_deviation[0]) + sqr(initial_deviation[1]) +
+                                              sqr(initial_deviation[2]) + sqr(initial_deviation[3]));
+
+        if (current_norm == 0.0 || initial_norm == 0.0) {
+            throw std::domain_error("Cannot compute LCI from a zero deviation vector.");
+        }
+
+        return std::log(current_norm / initial_norm) / elapsed_time;
+    }
+}  // namespace chaos_indicator
+
 int main(int argc, char *argv[])
 {
     CommandLineOptions opt;
@@ -795,18 +1021,20 @@ int main(int argc, char *argv[])
             print_input_data(opt, init);
         }
 
+        int n_var = setN_var(init.compute);
+        printf("Number of variables: %d\n", n_var);
+
         std::unique_ptr<double[]> y_in =
-            allocate_array<double>(4);  // Allocate an array of 4 doubles for initial conditions
+            allocate_array<double>(n_var);  // Allocate an array of n_var doubles for initial conditions
         std::unique_ptr<double[]> y_out =
-            allocate_array<double>(4);  // Allocate an array of 4 doubles for intermedient results
+            allocate_array<double>(n_var);  // Allocate an array of n_var doubles for intermedient results
 
         /* If the -o option is specified then the output is written to a file */
         /** Output file stream. */
         std::ofstream fout;
         /** Output stream used by the program. */
-        std::ostream* out = open_output_stream(opt, fout);
+        std::ostream *out = open_output_stream(opt, fout);
 
-        int    n_var  = 4;  // Number of variables in the system (x, y, vx, vy)
         double relTol = 1.0e-6;
         double absTol = 1.0e-10;
         double t      = init.t0;
@@ -816,6 +1044,7 @@ int main(int argc, char *argv[])
             // getInitialCondition(param.mu, a, e, y_in.get());  // Get initial conditions for the current (a,e)
             initialize_L4(param, y_in.get());  // Initialize at L4 point)
             y_in[0] += 3.0e-2;
+            y_in[4] = 1.0;
             // printInitialCondition(grid, y_in.get());          // Print the initial conditions
 
             t = init.t0;
@@ -823,15 +1052,52 @@ int main(int argc, char *argv[])
             step.h     = 0.1;
             step.h_max = 0.1;
             step.h_nxt = step.h;
-            printState(*out, t, y_in.get());  // Print the current state (time and variables)
+            double fli = 0.0;                        // Initialize the Fast Lyapunov Indicator
+
+            switch (init.compute) {
+                case ComputeMode::ORBIT:
+                    printState(*out, t, y_in.get(), n_var);  // Print the current state (time and variables)
+                    break;
+                case ComputeMode::FLI:
+                    fli = chaos_indicator::computeFLI(y_in.get(), fli);
+                    printState(*out, t, y_in.get(), n_var, false);  // Print the current state (time and variables)
+                    *out << std::scientific << std::showpos << std::setprecision(10) << std::setw(18) << fli << '\n';
+                    break;
+                case ComputeMode::LCI:
+                case ComputeMode::RLI:
+                    throw std::runtime_error("LCI and RLI modes are not yet implemented.");
+                    break;
+                default:
+                    throw std::runtime_error("Unknown computation mode.");
+            }
+
             do {
                 limitStep(t, init.T, step);  // Limit the step size to not exceed the final time
-                ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol, model::CRTBP2Dfun,
-                                      (void *)&param);
+
+                switch (init.compute) {
+                    case ComputeMode::ORBIT:
+                        ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
+                                              model::CRTBP2Dfun, (void *)&param);
+                        printState(*out, t, y_out.get(), n_var);  // Print the current state (time and variables)
+                        break;
+                    case ComputeMode::FLI:
+                        ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
+                                              model::CRTBP2DVariationalFun, (void *)&param);
+                        fli = chaos_indicator::computeFLI(y_out.get(), fli);
+                        printState(*out, t, y_out.get(), n_var, false);  // Print the current state (time and variables)
+                        *out << std::scientific << std::showpos << std::setprecision(10) << std::setw(18) << fli
+                             << '\n';
+                        break;
+                    case ComputeMode::LCI:
+                    case ComputeMode::RLI:
+                        throw std::runtime_error("LCI and RLI modes are not yet implemented.");
+                        break;
+                    default:
+                        throw std::runtime_error("Unknown computation mode.");
+                }
                 std::copy_n(y_out.get(), n_var, y_in.get());
-                t += step.h_did;
-                printState(*out, t, y_in.get());  // Print the current state (time and variables)
-            } while (std::abs(init.T - t) > 1.0e-10);
+
+            } while (t < init.T); //std::abs(init.T - t) > TIME_EPS);
 
             break;
         } while (grid.next());
