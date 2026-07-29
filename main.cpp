@@ -71,7 +71,7 @@ struct CommandLineOptions {
      *
      * @param os Output stream.
      */
-    void print(std::ostream &os = std::cout) const
+    void Print(std::ostream &os = std::cout) const
     {
         os << "----------------------------------------\n";
         os << "Command-line options\n";
@@ -131,7 +131,7 @@ struct InitData {
     /// Destroys the initialization data structure.
     ~InitData() = default;
 
-    void print(std::ostream &os = std::cout) const
+    void Print(std::ostream &os = std::cout) const
     {
         os << std::scientific << std::setprecision(6) << std::showpos;
 
@@ -141,7 +141,7 @@ struct InitData {
         os << "InitData contents\n";
         os << "----------------------------------------\n";
 
-        os << "compute : " << computeModeToString(compute) << "\n";
+        os << "compute : " << ComputeModeToString(compute) << "\n";
         os << "mu = " << std::setw(W) << mu << "\n";
         os << "t0 = " << std::setw(W) << t0 << " [time unit]\n";
         os << "T  = " << std::setw(W) << T << " [time unit]\n";
@@ -165,7 +165,7 @@ struct InitData {
      * @param mode Computation mode.
      * @return Mode name.
      */
-    const char *computeModeToString(const ComputeMode mode) const
+    const char *ComputeModeToString(const ComputeMode mode) const
     {
         switch (mode) {
             case ComputeMode::ORBIT:
@@ -243,7 +243,7 @@ class GridIterator {
      *
      * @return Header string.
      */
-    std::string header() const
+    std::string Header() const
     {
         return "  a         e";
     }
@@ -253,7 +253,7 @@ class GridIterator {
      *
      * @return True if the next grid point exists, false otherwise.
      */
-    bool next()
+    bool Next()
     {
         if (ia_ < data_.Na) {
             ++ia_;
@@ -300,7 +300,7 @@ class GridIterator {
  * @note This function does not check for overflow/underflow.
  */
 template <typename T>
-inline T sqr(T x) noexcept
+inline T Sqr(T x) noexcept
 {
     return (x * x);
 }
@@ -316,7 +316,7 @@ inline T sqr(T x) noexcept
  * @throws std::bad_alloc If memory allocation fails.
  */
 template <typename T>
-std::unique_ptr<T[]> allocate_array(std::size_t n)
+std::unique_ptr<T[]> AllocateArray(std::size_t n)
 {
     if (n == 0) {
         throw std::invalid_argument("The array size must be greater than zero.");
@@ -366,8 +366,8 @@ namespace model {
         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
         const double mu = p->mu;
 
-        const double r1 = std::sqrt(sqr(y[0] + mu) + sqr(y[1]));
-        const double r2 = std::sqrt(sqr(y[0] - 1.0 + mu) + sqr(y[1]));
+        const double r1 = std::sqrt(Sqr(y[0] + mu) + Sqr(y[1]));
+        const double r2 = std::sqrt(Sqr(y[0] - 1.0 + mu) + Sqr(y[1]));
 
         const double r1_3 = 1.0 / (r1 * r1 * r1);
         const double r2_3 = 1.0 / (r2 * r2 * r2);
@@ -398,8 +398,8 @@ namespace model {
         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
         const double mu = p->mu;
 
-        const double r1 = std::sqrt(sqr(y[0] + mu) + sqr(y[1]));
-        const double r2 = std::sqrt(sqr(y[0] - 1.0 + mu) + sqr(y[1]));
+        const double r1 = std::sqrt(Sqr(y[0] + mu) + Sqr(y[1]));
+        const double r2 = std::sqrt(Sqr(y[0] - 1.0 + mu) + Sqr(y[1]));
 
         const double r1_3 = 1.0 / (r1 * r1 * r1);
         const double r2_3 = 1.0 / (r2 * r2 * r2);
@@ -412,13 +412,13 @@ namespace model {
         dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
         dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
 
-        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * sqr(y[0] + mu) * r1_5 +
-                            3.0 * mu * sqr(y[0] - 1.0 + mu) * r2_5;
+        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * Sqr(y[0] + mu) * r1_5 +
+                            3.0 * mu * Sqr(y[0] - 1.0 + mu) * r2_5;
 
         const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] * r2_5;
 
         const double O_yy =
-            1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * sqr(y[1]) * r1_5 + 3.0 * mu * sqr(y[1]) * r2_5;
+            1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * Sqr(y[1]) * r1_5 + 3.0 * mu * Sqr(y[1]) * r2_5;
 
         // Variational equations for one deviation vector.
         dydt[4] = y[6];
@@ -445,8 +445,8 @@ namespace ode_integrator {
             {-73.0 / 48.0, 0.0, 1312.0 / 231.0, -2025.0 / 448.0, 2875.0 / 2112.0, 0.0},
             {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0}};
 
-        static auto dy = allocate_array<var_t>(7 * n_var);  ///< Workspace storing the 7 Runge–Kutta stage derivatives.
-        static auto y  = allocate_array<double>(n_var);     ///< Allocate memory for y
+        static auto dy = AllocateArray<var_t>(7 * n_var);  ///< Workspace storing the 7 Runge–Kutta stage derivatives.
+        static auto y  = AllocateArray<double>(n_var);     ///< Allocate memory for y
 
         double t0    = t;
         var_t  temax = 0.0;
@@ -488,40 +488,6 @@ namespace ode_integrator {
 }  // namespace ode_integrator
 
 namespace {
-    /**
-     * @brief Prints the program version.
-     *
-     * Displays the program name together with its version number.
-     */
-    void print_version()
-    {
-        std::cout << PROGRAM_NAME << " version " << PROGRAM_VERSION << '\n';
-    }
-
-    /**
-     * @brief Prints the command-line help.
-     *
-     * Displays the program usage together with the supported
-     * command-line options.
-     */
-    void print_help()
-    {
-        std::cout << "Arch of Chaos\n";
-        std::cout << "=============\n\n";
-
-        std::cout << "Usage:\n";
-        std::cout << "  archofchaos -i <input file> -o <output file>\n\n";
-
-        std::cout << "Options:\n";
-        std::cout << "  -i <file>   Input file.\n";
-        std::cout << "  -o <file>   Output file.\n";
-        std::cout << "  -h          Display this help message.\n";
-        std::cout << "  -v          Display program version.\n\n";
-
-        std::cout << "Examples:\n";
-        std::cout << "  archofchaos -i input.txt -o output.txt\n";
-        std::cout << "  archofchaos -i data/init.txt -o results/orbit.txt\n";
-    }
 
     /**
      * @brief Parses the command-line arguments.
@@ -548,7 +514,7 @@ namespace {
      *         If an unknown option is encountered or if a required
      *         argument is missing.
      */
-    void parse_command_line(int argc, char *argv[], CommandLineOptions &opt)
+    void ParseCommandLine(int argc, char *argv[], CommandLineOptions &opt)
     {
         for (int i = 1; i < argc; ++i) {
             const std::string arg(argv[i]);
@@ -588,7 +554,7 @@ namespace {
      *
      * @param text String to be modified.
      */
-    void remove_spaces(std::string &text)
+    void RemoveSpaces(std::string &text)
     {
         text.erase(std::remove_if(text.begin(), text.end(), ::isspace), text.end());
     }
@@ -601,7 +567,7 @@ namespace {
      *
      * @throw std::runtime_error If the mode is unknown.
      */
-    ComputeMode parseComputeMode(const std::string &text)
+    ComputeMode ParseComputeMode(const std::string &text)
     {
         std::string mode(text);
         std::transform(mode.begin(), mode.end(), mode.begin(),
@@ -634,7 +600,7 @@ namespace {
      * @throws std::runtime_error If the line has an invalid format or
      *         contains an unknown keyword.
      */
-    void parse_line(const std::string &line, InitData &data)
+    void ParseLine(const std::string &line, InitData &data)
     {
         std::string text = line;
 
@@ -643,7 +609,7 @@ namespace {
             text.erase(comment);
         }
 
-        remove_spaces(text);
+        RemoveSpaces(text);
 
         if (text.empty()) {
             return;
@@ -659,7 +625,7 @@ namespace {
         const std::string value = text.substr(pos + 1);
 
         if (key == "compute") {
-            data.compute = parseComputeMode(value);
+            data.compute = ParseComputeMode(value);
             return;
         }
 
@@ -706,7 +672,7 @@ namespace {
      *
      * @throws std::runtime_error If any parameter is invalid.
      */
-    void validate_init_data(const InitData &data)
+    void ValidateInitData(const InitData &data)
     {
         if (data.mu <= 0.0 || data.mu >= 0.5) {
             throw std::runtime_error("Invalid mass parameter.");
@@ -742,6 +708,37 @@ namespace {
     }
 
     /**
+     * @brief Opens the output stream.
+     *
+     * If an output file is specified on the command line, the file is opened
+     * and the returned stream points to it. Otherwise, the standard output
+     * stream is returned.
+     *
+     * @param opt Command-line options.
+     * @param fout Output file stream.
+     *
+     * @return Pointer to the selected output stream.
+     *
+     * @throws std::runtime_error If the output file cannot be opened.
+     */
+    std::ostream *OpenOutputStream(const CommandLineOptions &opt, std::ofstream &fout)
+    {
+        if (opt.output_path.empty()) {
+            return &std::cout;
+        }
+
+        const std::filesystem::path output_file = std::filesystem::path(opt.output_dir) / opt.output_path;
+
+        fout.open(output_file);
+
+        if (!fout) {
+            throw std::runtime_error("Cannot open output file.");
+        }
+
+        return &fout;
+    }
+
+    /**
      * @brief Reads the initialization file.
      *
      * @param file_name Initialization file.
@@ -751,7 +748,7 @@ namespace {
      * @throws std::runtime_error If the file cannot be read or
      *         contains invalid data.
      */
-    InitData read_init_data(const std::string &file_name)
+    InitData ReadInitData(const std::string &file_name)
     {
         std::ifstream file(file_name);
 
@@ -764,15 +761,15 @@ namespace {
         std::string line;
 
         while (std::getline(file, line)) {
-            parse_line(line, data);
+            ParseLine(line, data);
         }
 
-        validate_init_data(data);
+        ValidateInitData(data);
 
         return data;
     }
 
-    int setN_var(ComputeMode mode)
+    int SetN_var(ComputeMode mode)
     {
         int n_var = 0;
         switch (mode) {
@@ -795,123 +792,33 @@ namespace {
     }
 
     /**
-     * @brief Prints all input parameters.
-     *
-     * Displays the command-line options together with the values read from
-     * the input file in a human-readable format.
-     *
-     * @param options Parsed command-line options.
-     * @param init Input data read from the initialization file.
-     */
-    void print_input_data(const CommandLineOptions &options, const InitData &init, std::ostream &os = std::cout)
-    {
-        os << '\n';
-        os << "============================================================\n";
-        os << "Input parameters\n";
-        os << "============================================================\n\n";
-        options.print(os);
-        os << '\n';
-        init.print(os);
-        os << "============================================================\n";
-    }
-
-    /**
      * @brief Initializes the state vector at the L4 Lagrange point.
      *
      * Places the massless body at the triangular L4 equilibrium point
      * with zero velocity in the rotating reference frame.
      *
-     * @param param CRTBP parameters.
+     * @param mu Mass parameter.
      * @param y State vector [x, y, vx, vy].
      */
-    void initialize_L4(const model::CRTBP2DParams &param, double *y)
+    void InitializeL4(double mu, double *y)
     {
-        y[0] = 0.5 - param.mu;
+        y[0] = 0.5 - mu;
         y[1] = std::sqrt(3.0) / 2.0;
         y[2] = 0.0;
         y[3] = 0.0;
     }
 
-    void getInitialCondition(double mu, double a, double e, double *y)
+    void GetInitialCondition(double mu, const double *dy, double a, double e, double *y)
     {
         y[0] = a * (1.0 - e) - mu;                                      /// x_0
         y[1] = 0.0;                                                     /// y_0
         y[2] = 0.0;                                                     /// vx_0
         y[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - y[0];  /// vy_0
-    }
 
-    void printInitialCondition(const GridIterator &grid, const double *x)
-    {
-        static bool first = true;
-
-        if (first) {
-            std::cout << grid.header() << "         x"
-                      << "         y"
-                      << "         vx"
-                      << "        vy" << '\n';
-            first = false;
-        }
-        std::cout << std::fixed << std::setprecision(6) << std::setw(10) << grid.a() << std::setw(10) << grid.e()
-                  << std::setw(10) << x[0] << std::setw(10) << x[1] << std::setw(10) << x[2] << std::setw(10) << x[3]
-                  << '\n';
-    }
-
-    /**
-     * @brief Opens the output stream.
-     *
-     * If an output file is specified on the command line, the file is opened
-     * and the returned stream points to it. Otherwise, the standard output
-     * stream is returned.
-     *
-     * @param opt Command-line options.
-     * @param fout Output file stream.
-     *
-     * @return Pointer to the selected output stream.
-     *
-     * @throws std::runtime_error If the output file cannot be opened.
-     */
-    std::ostream *open_output_stream(const CommandLineOptions &opt, std::ofstream &fout)
-    {
-        if (opt.output_path.empty()) {
-            return &std::cout;
-        }
-
-        const std::filesystem::path output_file = std::filesystem::path(opt.output_dir) / opt.output_path;
-
-        fout.open(output_file);
-
-        if (!fout) {
-            throw std::runtime_error("Cannot open output file.");
-        }
-
-        return &fout;
-    }
-
-    /**
-     * @brief Prints the current time and all components of a state vector.
-     *
-     * The values are written in scientific notation so that very small and very
-     * large numbers can be displayed in uniformly sized columns.
-     *
-     * @param os Output stream.
-     * @param t Current time.
-     * @param y State vector.
-     * @param n Number of elements in the state vector.
-     * @param newline If @c true, a newline is appended after the output.
-     */
-    void printState(std::ostream &os, double t, const double *y, std::size_t n, bool newline = true)
-    {
-        constexpr int field_width = 18;
-        constexpr int precision   = 10;
-
-        os << std::scientific << std::showpos << std::setprecision(precision) << std::setw(field_width) << t;
-
-        for (std::size_t i = 0; i < n; ++i) {
-            os << std::setw(field_width) << y[i];
-        }
-
-        if (newline)
-            os << '\n';
+        y[4] = dy[0];                                                   /// dy_0    
+        y[5] = dy[1];                                                   /// dy_1
+        y[6] = dy[2];                                                   /// dy_2
+        y[7] = dy[3];                                                   /// dy_3
     }
 
     /**
@@ -925,7 +832,7 @@ namespace {
      * @param T Final integration time.
      * @param step Step-size control parameters.
      */
-    void limitStep(double t, double T, StepControl &step)
+    void LimitStep(double t, double T, StepControl &step)
     {
         if (t + step.h > T) {
             step.h = T - t;
@@ -954,9 +861,9 @@ namespace chaos_indicator {
      *
      * @throws std::domain_error If the deviation-vector norm is zero.
      */
-    double computeFLI(const double *y, double previous_fli)
+    double ComputeFLI(const double *y, double previous_fli)
     {
-        const double norm = std::sqrt(sqr(y[4]) + sqr(y[5]) + sqr(y[6]) + sqr(y[7]));
+        const double norm = std::sqrt(Sqr(y[4]) + Sqr(y[5]) + Sqr(y[6]) + Sqr(y[7]));
 
         return std::max(previous_fli, std::log(norm));
     }
@@ -979,7 +886,7 @@ namespace chaos_indicator {
      * @throws std::domain_error If the elapsed time or either deviation-vector norm
      *         is zero.
      */
-    double computeLCI(double t, double t0, const double *y, const double *initial_deviation)
+    double ComputeLCI(double t, double t0, const double *y, const double *initial_deviation)
     {
         const double elapsed_time = t - t0;
 
@@ -987,10 +894,10 @@ namespace chaos_indicator {
             throw std::domain_error("Cannot compute LCI at the initial time.");
         }
 
-        const double current_norm = std::sqrt(sqr(y[4]) + sqr(y[5]) + sqr(y[6]) + sqr(y[7]));
+        const double current_norm = std::sqrt(Sqr(y[4]) + Sqr(y[5]) + Sqr(y[6]) + Sqr(y[7]));
 
-        const double initial_norm = std::sqrt(sqr(initial_deviation[0]) + sqr(initial_deviation[1]) +
-                                              sqr(initial_deviation[2]) + sqr(initial_deviation[3]));
+        const double initial_norm = std::sqrt(Sqr(initial_deviation[0]) + Sqr(initial_deviation[1]) +
+                                              Sqr(initial_deviation[2]) + Sqr(initial_deviation[3]));
 
         if (current_norm == 0.0 || initial_norm == 0.0) {
             throw std::domain_error("Cannot compute LCI from a zero deviation vector.");
@@ -1000,68 +907,82 @@ namespace chaos_indicator {
     }
 }  // namespace chaos_indicator
 
-int main(int argc, char *argv[])
-{
-    CommandLineOptions opt;
-    try {
-        parse_command_line(argc, argv, opt);
-        if (opt.show_version) {
-            print_version();
-        }
-        if (opt.show_help) {
-            print_help();
-        }
+namespace print {
+    /**
+     * @brief Prints the program version.
+     *
+     * Displays the program name together with its version number.
+     */
+    void Version()
+    {
+        std::cout << PROGRAM_NAME << " version " << PROGRAM_VERSION << '\n';
+    }
 
-        const InitData init = read_init_data(opt.input_path);
+    /**
+     * @brief Prints the command-line help.
+     *
+     * Displays the program usage together with the supported
+     * command-line options.
+     */
+    void Help()
+    {
+        std::cout << "Arch of Chaos\n";
+        std::cout << "=============\n\n";
 
-        model::CRTBP2DParams param(init.mu);
+        std::cout << "Usage:\n";
+        std::cout << "  archofchaos -i <input file> -o <output file>\n\n";
 
-        GridIterator grid(init);
-        if (opt.verbose) {
-            print_input_data(opt, init);
-        }
+        std::cout << "Options:\n";
+        std::cout << "  -i <file>   Input file.\n";
+        std::cout << "  -o <file>   Output file.\n";
+        std::cout << "  -h          Display this help message.\n";
+        std::cout << "  -v          Display program version.\n\n";
 
-        int n_var = setN_var(init.compute);
-        printf("Number of variables: %d\n", n_var);
+        std::cout << "Examples:\n";
+        std::cout << "  archofchaos -i input.txt -o output.txt\n";
+        std::cout << "  archofchaos -i data/init.txt -o results/orbit.txt\n";
+    }
 
-        std::unique_ptr<double[]> y_in =
-            allocate_array<double>(n_var);  // Allocate an array of n_var doubles for initial conditions
-        std::unique_ptr<double[]> y_out =
-            allocate_array<double>(n_var);  // Allocate an array of n_var doubles for intermedient results
+    /**
+     * @brief Prints all input parameters.
+     *
+     * Displays the command-line options together with the values read from
+     * the input file in a human-readable format.
+     *
+     * @param options Parsed command-line options.
+     * @param init Input data read from the initialization file.
+     */
+    void InputData(const CommandLineOptions &options, const InitData &init, std::ostream &os = std::cout)
+    {
+        os << '\n';
+        os << "============================================================\n";
+        os << "Input parameters\n";
+        os << "============================================================\n\n";
+        options.Print(os);
+        os << '\n';
+        init.Print(os);
+        os << "============================================================\n";
+    }
 
-        /* If the -o option is specified then the output is written to a file */
-        /** Output file stream. */
-        std::ofstream fout;
-        /** Output stream used by the program. */
-        std::ostream *out = open_output_stream(opt, fout);
+    void State(std::ostream &os, const GridIterator &grid, const InitData &init, double t, const double *y,
+               std::size_t n, double MI, bool newline = true)
+    {
+        static bool first_call = true;
 
-        double relTol = 1.0e-6;
-        double absTol = 1.0e-10;
-        double t      = init.t0;
-        do {
-            double a = grid.a();
-            double e = grid.e();
-            // getInitialCondition(param.mu, a, e, y_in.get());  // Get initial conditions for the current (a,e)
-            initialize_L4(param, y_in.get());  // Initialize at L4 point)
-            y_in[0] += 3.0e-2;
-            y_in[4] = 1.0;
-            // printInitialCondition(grid, y_in.get());          // Print the initial conditions
+        constexpr int W         = 18;
+        constexpr int precision = 10;
 
-            t = init.t0;
-            StepControl step;  // Step control structure for adaptive integration
-            step.h     = 0.1;
-            step.h_max = 0.1;
-            step.h_nxt = step.h;
-            double fli = 0.0;                        // Initialize the Fast Lyapunov Indicator
-
+        if (first_call) {
             switch (init.compute) {
                 case ComputeMode::ORBIT:
-                    printState(*out, t, y_in.get(), n_var);  // Print the current state (time and variables)
+                    os << std::left << std::setw(W) << "t" << std::setw(W) << "x" << std::setw(W) << "y" << std::setw(W)
+                       << "vx" << std::setw(W) << "vy" << std::setw(W) << "dy1" << std::setw(W) << "dy2" << std::setw(W)
+                       << "dy3" << std::setw(W) << "dy4" << std::setw(W) << "MI";
+                    os << std::right;
                     break;
                 case ComputeMode::FLI:
-                    fli = chaos_indicator::computeFLI(y_in.get(), fli);
-                    printState(*out, t, y_in.get(), n_var, false);  // Print the current state (time and variables)
-                    *out << std::scientific << std::showpos << std::setprecision(10) << std::setw(18) << fli << '\n';
+                    os << std::left << std::setw(W) << " a" << std::setw(W) << " e" << std::setw(W) << " MI";
+                    os << std::right;
                     break;
                 case ComputeMode::LCI:
                 case ComputeMode::RLI:
@@ -1070,23 +991,99 @@ int main(int argc, char *argv[])
                 default:
                     throw std::runtime_error("Unknown computation mode.");
             }
+            os << '\n';
+        }
 
+        os << std::scientific << std::showpos << std::setprecision(precision);
+        switch (init.compute) {
+            case ComputeMode::ORBIT:
+                os << std::setw(W) << t;
+                for (std::size_t i = 0; i < n; ++i) {
+                    os << std::setw(W) << y[i];
+                }
+                break;
+            case ComputeMode::FLI:
+                os << std::setw(W) << grid.a() << std::setw(W) << grid.e() << std::setw(W) << MI;
+                break;
+            case ComputeMode::LCI:
+            case ComputeMode::RLI:
+                throw std::runtime_error("LCI and RLI modes are not yet implemented.");
+                break;
+            default:
+                throw std::runtime_error("Unknown computation mode.");
+        }
+        if (newline)
+            os << '\n';
+
+        first_call = false;
+    }
+
+}  // namespace print
+
+int main(int argc, char *argv[])
+{
+    CommandLineOptions opt;
+    try {
+        ParseCommandLine(argc, argv, opt);
+        if (opt.show_version) {
+            print::Version();
+        }
+        if (opt.show_help) {
+            print::Help();
+        }
+
+        const InitData init = ReadInitData(opt.input_path);
+
+        model::CRTBP2DParams param(init.mu);
+
+        GridIterator grid(init);
+        if (opt.verbose) {
+            print::InputData(opt, init);
+        }
+
+        int n_var = SetN_var(init.compute);
+
+        std::unique_ptr<double[]> y_in =
+            AllocateArray<double>(n_var);  // Allocate an array of n_var doubles for initial conditions
+        std::unique_ptr<double[]> y_out =
+            AllocateArray<double>(n_var);  // Allocate an array of n_var doubles for intermedient results
+
+        /* If the -o option is specified then the output is written to a file */
+        /** Output file stream. */
+        std::ofstream fout;
+        /** Output stream used by the program. */
+        std::ostream *out = OpenOutputStream(opt, fout);
+
+        double relTol = 1.0e-6;
+        double absTol = 1.0e-10;
+        double t      = init.t0;
+        do {
+            t = init.t0;
+            StepControl step;  // Step control structure for adaptive integration
+            step.h = 0.1;
+            step.h_max = 0.1;
+            step.h_nxt = step.h;
+            double fli = 0.0;  // Initialize the Fast Lyapunov Indicator
+
+            double a = grid.a();
+            double e = grid.e();
+            GetInitialCondition(param.mu, init.dy, a, e, y_in.get());  // Get initial conditions for the current (a,e)
+            //InitializeL4(param, y_in.get());  // Initialize at L4 point)
+            //y_in[0] += 3.0e-2;
+            //y_in[4] = 1.0;
             do {
-                limitStep(t, init.T, step);  // Limit the step size to not exceed the final time
+                LimitStep(t, init.T, step);  // Limit the step size to not exceed the final time
 
                 switch (init.compute) {
                     case ComputeMode::ORBIT:
+                        print::State(*out, grid, init, t, y_in.get(), n_var, fli);  // Print the state (time and variables)
                         ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
                                               model::CRTBP2Dfun, (void *)&param);
-                        printState(*out, t, y_out.get(), n_var);  // Print the current state (time and variables)
                         break;
                     case ComputeMode::FLI:
                         ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
                                               model::CRTBP2DVariationalFun, (void *)&param);
-                        fli = chaos_indicator::computeFLI(y_out.get(), fli);
-                        printState(*out, t, y_out.get(), n_var, false);  // Print the current state (time and variables)
-                        *out << std::scientific << std::showpos << std::setprecision(10) << std::setw(18) << fli
-                             << '\n';
+                        fli = chaos_indicator::ComputeFLI(y_out.get(), fli);
                         break;
                     case ComputeMode::LCI:
                     case ComputeMode::RLI:
@@ -1095,12 +1092,12 @@ int main(int argc, char *argv[])
                     default:
                         throw std::runtime_error("Unknown computation mode.");
                 }
+                //print::State(*out, grid, init, t, y_out.get(), n_var, fli);  // Print the initial state (time and variables)
                 std::copy_n(y_out.get(), n_var, y_in.get());
 
-            } while (t < init.T); //std::abs(init.T - t) > TIME_EPS);
-
-            break;
-        } while (grid.next());
+            } while (t < init.T);  // std::abs(init.T - t) > TIME_EPS);
+            print::State(*out, grid, init, t, y_in.get(), n_var, fli);  // Print the state (time and variables)
+        } while (grid.Next());
 
         return EXIT_SUCCESS;
     } catch (const std::exception &e) {
