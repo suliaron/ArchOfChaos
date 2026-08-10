@@ -361,3 +361,13 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Generated numerical data
+python/fli_map_*.txt
+python/fli_map*.png
+python/fli_map*.eps
+python/fli_map*.pdf
+
+# Generated plot files
+*.png
+*.eps

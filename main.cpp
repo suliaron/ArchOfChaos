@@ -1,4 +1,7 @@
+#include "math_utils.h"  // astro::sqr
+
 #include <algorithm>  /**< std::copy, std::copy_n, std::remove_if. */
+#include <chrono>     /**< Provides time measurement utilities. */
 #include <cmath>      /**< Mathematical functions (std::sqrt, std::abs). */
 #include <cctype>     /**< Character classification functions (std::isspace). */
 #include <cstddef>    /**< std::size_t. */
@@ -19,12 +22,6 @@ namespace fs = std::filesystem;
 
 static constexpr const char *PROGRAM_NAME    = "archofchaos";
 static constexpr const char *PROGRAM_VERSION = "1.0";
-
-static constexpr double PI     = 3.1415926535897932;
-static constexpr double TWO_PI = 2.0 * PI;
-
-static constexpr double kG  = 1.720209895e-2;
-static constexpr double kG2 = 2.9591220828559110e-4;
 
 constexpr double TIME_EPS = 1.0e-15;
 
@@ -186,7 +183,7 @@ struct InitData {
  * @brief Adaptive step-size control parameters.
  *
  * Stores the current, accepted, proposed, and allowed integration
- * step sizes used by the adaptive Rungeâ€“Kutta integrator.
+ * step sizes used by the adaptive Runge–Kutta integrator.
  */
 struct StepControl {
     double h     = 0.0;  ///< Current integration step size.
@@ -194,6 +191,9 @@ struct StepControl {
     double h_did = 0.0;  ///< Accepted step size of the current step.
     double h_max = 0.0;  ///< Maximum allowed step size.
     double h_min = 0.0;  ///< Minimum allowed step size.
+
+    uint32_t n_int = 0;  ///< Number of integration steps taken.
+    uint32_t n_tst = 0;  ///< Test
 };
 
 /**
@@ -270,6 +270,29 @@ class GridIterator {
         return false;
     }
 
+    /**
+     * @brief Prints the current progress.
+     *
+     * @param os Output stream.
+     */
+    void PrintProgress(std::ostream &os = std::cout) const
+    {
+        constexpr std::size_t kBarWidth = 40;
+
+        const std::size_t total    = (data_.Na + 1) * (data_.Ne + 1);
+        const std::size_t current  = ie_ * (data_.Na + 1) + ia_ + 1;
+        const double      progress = static_cast<double>(current) / static_cast<double>(total);
+        const std::size_t filled   = static_cast<std::size_t>(progress * kBarWidth);
+
+        os << '\r' << '(' << std::setw(4) << ia_ << ", " << std::setw(4) << ie_ << ") [";
+
+        for (std::size_t i = 0; i < kBarWidth; ++i) {
+            os << (i < filled ? '#' : '.');
+        }
+
+        os << "] " << std::fixed << std::setw(6) << std::setprecision(2) << progress * 100.0 << " %" << std::flush;
+    }
+
    private:
     /// Grid definition.
     const InitData &data_;
@@ -286,24 +309,6 @@ class GridIterator {
     /// Eccentricity step size.
     double de_;
 };
-
-/**
- * @brief Returns the square of @p x.
- *
- * Computes @c x*x using a single evaluation of the argument, avoiding the
- * multiple-evaluation pitfalls of function-like macros (e.g. @c SQR(x)).
- *
- * @tparam T  A type supporting multiplication (@c operator*).
- * @param x   Input value.
- * @return    The value @c x*x.
- *
- * @note This function does not check for overflow/underflow.
- */
-template <typename T>
-inline T Sqr(T x) noexcept
-{
-    return (x * x);
-}
 
 /**
  * @brief Allocates an array of n elements of type T.
@@ -366,8 +371,8 @@ namespace model {
         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
         const double mu = p->mu;
 
-        const double r1 = std::sqrt(Sqr(y[0] + mu) + Sqr(y[1]));
-        const double r2 = std::sqrt(Sqr(y[0] - 1.0 + mu) + Sqr(y[1]));
+        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
+        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
 
         const double r1_3 = 1.0 / (r1 * r1 * r1);
         const double r2_3 = 1.0 / (r2 * r2 * r2);
@@ -398,8 +403,8 @@ namespace model {
         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
         const double mu = p->mu;
 
-        const double r1 = std::sqrt(Sqr(y[0] + mu) + Sqr(y[1]));
-        const double r2 = std::sqrt(Sqr(y[0] - 1.0 + mu) + Sqr(y[1]));
+        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
+        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
 
         const double r1_3 = 1.0 / (r1 * r1 * r1);
         const double r2_3 = 1.0 / (r2 * r2 * r2);
@@ -412,13 +417,13 @@ namespace model {
         dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
         dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
 
-        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * Sqr(y[0] + mu) * r1_5 +
-                            3.0 * mu * Sqr(y[0] - 1.0 + mu) * r2_5;
+        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[0] + mu) * r1_5 +
+                            3.0 * mu * astro::sqr(y[0] - 1.0 + mu) * r2_5;
 
         const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] * r2_5;
 
         const double O_yy =
-            1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * Sqr(y[1]) * r1_5 + 3.0 * mu * Sqr(y[1]) * r2_5;
+            1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[1]) * r1_5 + 3.0 * mu * astro::sqr(y[1]) * r2_5;
 
         // Variational equations for one deviation vector.
         dydt[4] = y[6];
@@ -445,7 +450,7 @@ namespace ode_integrator {
             {-73.0 / 48.0, 0.0, 1312.0 / 231.0, -2025.0 / 448.0, 2875.0 / 2112.0, 0.0},
             {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0}};
 
-        static auto dy = AllocateArray<var_t>(7 * n_var);  ///< Workspace storing the 7 Rungeâ€“Kutta stage derivatives.
+        static auto dy = AllocateArray<var_t>(7 * n_var);  ///< Workspace storing the 7 Runge–Kutta stage derivatives.
         static auto y  = AllocateArray<double>(n_var);     ///< Allocate memory for y
 
         double t0    = t;
@@ -815,10 +820,10 @@ namespace {
         y[2] = 0.0;                                                     /// vx_0
         y[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - y[0];  /// vy_0
 
-        y[4] = dy[0];                                                   /// dy_0    
-        y[5] = dy[1];                                                   /// dy_1
-        y[6] = dy[2];                                                   /// dy_2
-        y[7] = dy[3];                                                   /// dy_3
+        y[4] = dy[0];  /// dy_0
+        y[5] = dy[1];  /// dy_1
+        y[6] = dy[2];  /// dy_2
+        y[7] = dy[3];  /// dy_3
     }
 
     /**
@@ -842,6 +847,24 @@ namespace {
             step.h = step.h_max;
         }
     }
+
+    /**
+     * @brief Checks whether all elements of a state vector are finite.
+     *
+     * Returns true if all components of the state vector are finite, false otherwise.
+     *
+     * @param y State vector.
+     * @param n Number of elements in the state vector.
+     */
+    bool CheckFinite(const double *y, std::size_t n)
+    {
+        for (std::size_t i = 0; i < n; ++i) {
+            if (!std::isfinite(y[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
 }  // namespace
 
 namespace chaos_indicator {
@@ -863,7 +886,7 @@ namespace chaos_indicator {
      */
     double ComputeFLI(const double *y, double previous_fli)
     {
-        const double norm = std::sqrt(Sqr(y[4]) + Sqr(y[5]) + Sqr(y[6]) + Sqr(y[7]));
+        const double norm = std::sqrt(astro::sqr(y[4]) + astro::sqr(y[5]) + astro::sqr(y[6]) + astro::sqr(y[7]));
 
         return std::max(previous_fli, std::log(norm));
     }
@@ -894,10 +917,10 @@ namespace chaos_indicator {
             throw std::domain_error("Cannot compute LCI at the initial time.");
         }
 
-        const double current_norm = std::sqrt(Sqr(y[4]) + Sqr(y[5]) + Sqr(y[6]) + Sqr(y[7]));
+        const double current_norm = std::sqrt(astro::sqr(y[4]) + astro::sqr(y[5]) + astro::sqr(y[6]) + astro::sqr(y[7]));
 
-        const double initial_norm = std::sqrt(Sqr(initial_deviation[0]) + Sqr(initial_deviation[1]) +
-                                              Sqr(initial_deviation[2]) + Sqr(initial_deviation[3]));
+        const double initial_norm = std::sqrt(astro::sqr(initial_deviation[0]) + astro::sqr(initial_deviation[1]) +
+                                              astro::sqr(initial_deviation[2]) + astro::sqr(initial_deviation[3]));
 
         if (current_norm == 0.0 || initial_norm == 0.0) {
             throw std::domain_error("Cannot compute LCI from a zero deviation vector.");
@@ -1057,10 +1080,11 @@ int main(int argc, char *argv[])
         double relTol = 1.0e-6;
         double absTol = 1.0e-10;
         double t      = init.t0;
+        const auto start_time = std::chrono::steady_clock::now();
         do {
             t = init.t0;
             StepControl step;  // Step control structure for adaptive integration
-            step.h = 0.1;
+            step.h     = 0.1;
             step.h_max = 0.1;
             step.h_nxt = step.h;
             double fli = 0.0;  // Initialize the Fast Lyapunov Indicator
@@ -1068,15 +1092,28 @@ int main(int argc, char *argv[])
             double a = grid.a();
             double e = grid.e();
             GetInitialCondition(param.mu, init.dy, a, e, y_in.get());  // Get initial conditions for the current (a,e)
-            //InitializeL4(param, y_in.get());  // Initialize at L4 point)
-            //y_in[0] += 3.0e-2;
-            //y_in[4] = 1.0;
+            // InitializeL4(param, y_in.get());  // Initialize at L4 point)
+            // y_in[0] += 3.0e-2;
+            // y_in[4] = 1.0;
+
+            step.n_tst = 0;
+            step.n_int = 0;
+            grid.PrintProgress();
             do {
+                if (step.n_tst % 10 == 0) {
+                    if (!CheckFinite(y_in.get(), n_var))
+                    {
+                        std::cerr << " Error at grid point. Proceed to the next grid point.\n";
+                        break;
+                    }
+                }
+
                 LimitStep(t, init.T, step);  // Limit the step size to not exceed the final time
 
                 switch (init.compute) {
                     case ComputeMode::ORBIT:
-                        print::State(*out, grid, init, t, y_in.get(), n_var, fli);  // Print the state (time and variables)
+                        print::State(*out, grid, init, t, y_in.get(), n_var,
+                                     fli);  // Print the state (time and variables)
                         ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
                                               model::CRTBP2Dfun, (void *)&param);
                         break;
@@ -1092,12 +1129,18 @@ int main(int argc, char *argv[])
                     default:
                         throw std::runtime_error("Unknown computation mode.");
                 }
-                //print::State(*out, grid, init, t, y_out.get(), n_var, fli);  // Print the initial state (time and variables)
+                // print::State(*out, grid, init, t, y_out.get(), n_var, fli);  // Print the initial state (time and
+                // variables)
                 std::copy_n(y_out.get(), n_var, y_in.get());
+                step.n_int++;
+                step.n_tst++;
 
             } while (t < init.T);  // std::abs(init.T - t) > TIME_EPS);
             print::State(*out, grid, init, t, y_in.get(), n_var, fli);  // Print the state (time and variables)
         } while (grid.Next());
+        const auto end_time = std::chrono::steady_clock::now();
+        const std::chrono::duration<double> elapsed_time = end_time - start_time;
+        std::cout << "\n" << "Total runtime : " << elapsed_time.count() << " s\n";
 
         return EXIT_SUCCESS;
     } catch (const std::exception &e) {
