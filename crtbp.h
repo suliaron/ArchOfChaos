@@ -9,16 +9,31 @@
  * equations of the planar circular restricted three-body problem (CRTBP)
  * in the rotating reference frame.
  */
-class CRTBP2D : public Model
-{
-public:
+class CRTBP2D : public Model {
+   public:
     /**
      * @brief Parameters of the planar circular restricted three-body problem.
      */
-    struct CRTBP2DParams
-    {
-        double mu;  /**< Gravitational mass parameter. */
+    struct CRTBP2DParams {
+        double mu; /**< Gravitational mass parameter. */
     };
+
+    /**
+     * @brief Constructs a planar CRTBP model.
+     *
+     * @param mu Gravitational mass parameter.
+     */
+    explicit CRTBP2D(double mu);
+
+    /**
+     * @brief Returns the model parameters.
+     *
+     * @return Pointer to the CRTBP parameters.
+     */
+    CRTBP2DParams *getParams() noexcept
+    {
+        return &param_;
+    }
 
     /**
      * @brief Evaluates the equations of motion of the planar CRTBP.
@@ -28,7 +43,7 @@ public:
      * @param dydt Time derivative of the state vector.
      * @param par Pointer to a CRTBP2DParams structure.
      */
-    void fun(double t, const double* y, double* dydt, void* par) const override;
+    void fun(double t, const double *y, double *dydt, void *par) const override;
 
     /**
      * @brief Evaluates the equations of motion and variational equations
@@ -40,5 +55,10 @@ public:
      * @param dydt Time derivative of the state and deviation vectors.
      * @param par Pointer to a CRTBP2DParams structure.
      */
-    void varfun(double t, const double* y, double* dydt, void* par) const override;
+    void varfun(double t, const double *y, double *dydt, void *par) const override;
+
+    void printState(std::ostream &os, double t, const double *y) const override;
+
+   private:
+    CRTBP2DParams param_;
 };

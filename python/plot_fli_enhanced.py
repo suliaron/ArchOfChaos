@@ -64,7 +64,7 @@ def parse_arguments():
     parser.add_argument(
         "--fli-scale",
         choices=("auto", "raw", "log"),
-        default="auto",
+        default="log",
         help=(
             "A 3. oszlop értelmezése: auto, raw vagy log. "
             "A log azt jelenti, hogy az oszlop már log10(FLI)."
@@ -373,21 +373,31 @@ def plot_map(
 
     ax.set_xlabel(r"$a\;(\mathrm{AU})$")
     ax.set_ylabel(r"$e$", rotation=0, labelpad=18)
-    #ax.set_xlim(a_values.min(), a_values.max())
-    #ax.set_ylim(e_values.min(), e_values.max())
-    ax.set_xlim(np.floor(a_values.min()),np.ceil(a_values.max()))
+    ax.set_xlim(a_values.min(), a_values.max())
+    ax.set_ylim(e_values.min(), e_values.max())
+    #ax.set_xlim(np.floor(a_values.min()),np.ceil(a_values.max()))
     ax.set_ylim(0.0, 1.0)
     ax.tick_params(direction="out", length=6, width=1)
 
     ax.legend(loc="lower right", fontsize=11, frameon=True, facecolor="white", edgecolor="black")
  
-    colorbar = fig.colorbar(image, ax=ax, pad=0.02, aspect=30, extend="max")
+    #colorbar = fig.colorbar(image, ax=ax, pad=0.02, aspect=30, extend="max")
+    cax = ax.inset_axes([1.04, 0.0, 0.035, 1.0])
+    colorbar = fig.colorbar(image, cax=cax, extend="max")
+
     colorbar.ax.tick_params(labelsize=13)
     colorbar.set_label(r"$\ln(\mathrm{FLI})$", fontsize=18)
 
     vmax_real = np.nanmax(grid)
-    colorbar.ax.text(0.5, 1.08, rf"$\max={vmax_real:.1f}$", ha="center", va="bottom", fontsize=12, transform=colorbar.ax.transAxes)
-
+    colorbar.ax.text(
+        0.5,
+        1.08,
+        rf"$\max={vmax_real:.1f}$",
+        ha="center",
+        va="bottom",
+        fontsize=12,
+        transform=colorbar.ax.transAxes,
+    )
     fig.tight_layout()
     save_figure(fig, output, save_all)
 

@@ -2,7 +2,17 @@
 
 #include "math_utils.h"  // astro::sqr
 
-#include <cmath>  // std::sqrt
+#include <cmath>    // std::sqrt
+#include <iomanip>  // std::scientific, std::setprecision, std::setw
+#include <ostream>  // std::ostream
+
+CRTBP2D::CRTBP2D(double mu)
+{
+    setName("Planar CRTBP");
+    setNVar(4);
+
+    param_.mu = mu;
+}
 
 void CRTBP2D::fun(double t, const double *y, double *dydt, void *par) const
 {
@@ -19,9 +29,7 @@ void CRTBP2D::fun(double t, const double *y, double *dydt, void *par) const
 
     dydt[0] = y[2];
     dydt[1] = y[3];
-
     dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
-
     dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
 }
 
@@ -63,4 +71,19 @@ void CRTBP2D::varfun(double t, const double *y, double *dydt, void *par) const
 
     dydt[6] = O_xx * y[4] + O_xy * y[5] + 2.0 * y[7];
     dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
+}
+
+void CRTBP2D::printState(std::ostream &os, double t, const double *y) const
+{
+    constexpr int W         = 18;
+    constexpr int precision = 10;
+
+    os << std::scientific << std::showpos << std::setprecision(precision);
+
+    os << std::setw(W) << t;
+    for (std::size_t i = 0; i < getNVar(); ++i) {
+        os << std::setw(W) << y[i];
+    }
+
+    os << '\n';
 }

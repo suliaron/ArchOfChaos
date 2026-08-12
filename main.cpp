@@ -1,4 +1,6 @@
 #include "math_utils.h"  // astro::sqr
+#include "model.h"       // Model base class
+#include "crtbp.h"
 
 #include <algorithm>  /**< std::copy, std::copy_n, std::remove_if. */
 #include <chrono>     /**< Provides time measurement utilities. */
@@ -21,13 +23,13 @@
 namespace fs = std::filesystem;
 
 static constexpr const char *PROGRAM_NAME    = "archofchaos";
-static constexpr const char *PROGRAM_VERSION = "1.0";
+static constexpr const char *PROGRAM_VERSION = "1.1";
 
 constexpr double TIME_EPS = 1.0e-15;
 
 typedef double var_t;
 /* prototype of the right-hand side of the diff. eq. system */
-typedef void rhs_t(double x, const double *y, double *dy, void *par);
+//typedef void rhs_t(double x, const double *y, double *dy, void *par);
 
 /**
  * @brief Computation modes.
@@ -330,112 +332,111 @@ std::unique_ptr<T[]> AllocateArray(std::size_t n)
     return std::make_unique<T[]>(n);
 }
 
-namespace model {
-    /**
-     * @brief Parameters of the planar circular restricted three-body problem.
-     */
-    struct CRTBP2DParams {
-        /**
-         * @brief Gravitational mass parameter.
-         */
-        double mu;
-
-        /**
-         * @brief Constructs the parameter set.
-         *
-         * @param mu Gravitational mass parameter.
-         */
-        explicit CRTBP2DParams(double mu) : mu(mu)
-        {
-        }
-    };
-
-    /**
-     * @brief Computes the right-hand side of the planar circular restricted three-body problem.
-     *
-     * Evaluates the first-order equations of motion in the rotating (synodic)
-     * reference frame. The state vector is defined as
-     * y = (x, y, vx, vy), and the output vector contains the corresponding
-     * time derivatives
-     * dydt = (dx/dt, dy/dt, dvx/dt, dvy/dt).
-     *
-     * @param t Current time (unused, as the equations are autonomous).
-     * @param y Input state vector (x, y, vx, vy).
-     * @param dydt Output time derivatives of the state vector.
-     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
-     */
-    void CRTBP2Dfun(double t, const double *y, double *dydt, void *par)
-    {
-        (void)t;  // Suppress unused parameter warning.
-
-        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
-        const double mu = p->mu;
-
-        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
-        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
-
-        const double r1_3 = 1.0 / (r1 * r1 * r1);
-        const double r2_3 = 1.0 / (r2 * r2 * r2);
-
-        // Equations of motion in the rotating frame.
-        dydt[0] = y[2];                                                                                 ///< dx/dt
-        dydt[1] = y[3];                                                                                 ///< dy/dt
-        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;  ///< dvx/dt
-        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);                           ///< dvy/dt
-    }
-
-    /**
-     * @brief Computes the right-hand side of the planar CRTBP and its variational equations.
-     *
-     * Evaluates the equations of motion and one deviation vector in the rotating
-     * (synodic) reference frame. The state vector is defined as
-     * y = (x, y, vx, vy, dx, dy, dvx, dvy).
-     *
-     * @param t Current time (unused, as the equations are autonomous).
-     * @param y Input state vector and deviation vector.
-     * @param dydt Output derivatives of the state and deviation vectors.
-     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
-     */
-    void CRTBP2DVariationalFun(double t, const double *y, double *dydt, void *par)
-    {
-        (void)t;  // Suppress unused parameter warning.
-
-        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
-        const double mu = p->mu;
-
-        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
-        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
-
-        const double r1_3 = 1.0 / (r1 * r1 * r1);
-        const double r2_3 = 1.0 / (r2 * r2 * r2);
-        const double r1_5 = r1_3 / (r1 * r1);
-        const double r2_5 = r2_3 / (r2 * r2);
-
-        // Equations of motion in the rotating frame.
-        dydt[0] = y[2];
-        dydt[1] = y[3];
-        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
-        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
-
-        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[0] + mu) * r1_5 +
-                            3.0 * mu * astro::sqr(y[0] - 1.0 + mu) * r2_5;
-
-        const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] * r2_5;
-
-        const double O_yy =
-            1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[1]) * r1_5 + 3.0 * mu * astro::sqr(y[1]) * r2_5;
-
-        // Variational equations for one deviation vector.
-        dydt[4] = y[6];
-        dydt[5] = y[7];
-        dydt[6] = O_xx * y[4] + O_xy * y[5] + 2.0 * y[7];
-        dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
-    }
-}  // namespace model
+//namespace model {
+//    /**
+//     * @brief Parameters of the planar circular restricted three-body problem.
+//     */
+//    struct CRTBP2DParams {
+//        /**
+//         * @brief Gravitational mass parameter.
+//         */
+//        double mu;
+//
+//        /**
+//         * @brief Constructs the parameter set.
+//         *
+//         * @param mu Gravitational mass parameter.
+//         */
+//        explicit CRTBP2DParams(double mu) : mu(mu)
+//        {
+//        }
+//    };
+//
+//    /**
+//     * @brief Computes the right-hand side of the planar circular restricted three-body problem.
+//     *
+//     * Evaluates the first-order equations of motion in the rotating (synodic)
+//     * reference frame. The state vector is defined as
+//     * y = (x, y, vx, vy), and the output vector contains the corresponding
+//     * time derivatives
+//     * dydt = (dx/dt, dy/dt, dvx/dt, dvy/dt).
+//     *
+//     * @param t Current time (unused, as the equations are autonomous).
+//     * @param y Input state vector (x, y, vx, vy).
+//     * @param dydt Output time derivatives of the state vector.
+//     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
+//     */
+//    void CRTBP2Dfun(double t, const double *y, double *dydt, void *par)
+//    {
+//        (void)t;  // Suppress unused parameter warning.
+//
+//        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
+//        const double mu = p->mu;
+//
+//        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
+//        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
+//
+//        const double r1_3 = 1.0 / (r1 * r1 * r1);
+//        const double r2_3 = 1.0 / (r2 * r2 * r2);
+//
+//        // Equations of motion in the rotating frame.
+//        dydt[0] = y[2];                                                                                 ///< dx/dt
+//        dydt[1] = y[3];                                                                                 ///< dy/dt
+//        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;  ///< dvx/dt
+//        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);                           ///< dvy/dt
+//    }
+//
+//    /**
+//     * @brief Computes the right-hand side of the planar CRTBP and its variational equations.
+//     *
+//     * Evaluates the equations of motion and one deviation vector in the rotating
+//     * (synodic) reference frame. The state vector is defined as
+//     * y = (x, y, vx, vy, dx, dy, dvx, dvy).
+//     *
+//     * @param t Current time (unused, as the equations are autonomous).
+//     * @param y Input state vector and deviation vector.
+//     * @param dydt Output derivatives of the state and deviation vectors.
+//     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
+//     */
+//    void CRTBP2DVariationalFun(double t, const double *y, double *dydt, void *par)
+//    {
+//        (void)t;  // Suppress unused parameter warning.
+//
+//        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
+//        const double mu = p->mu;
+//
+//        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
+//        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
+//
+//        const double r1_3 = 1.0 / (r1 * r1 * r1);
+//        const double r2_3 = 1.0 / (r2 * r2 * r2);
+//        const double r1_5 = r1_3 / (r1 * r1);
+//        const double r2_5 = r2_3 / (r2 * r2);
+//
+//        // Equations of motion in the rotating frame.
+//        dydt[0] = y[2];
+//        dydt[1] = y[3];
+//        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
+//        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
+//
+//        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[0] + mu) * r1_5 +
+//                            3.0 * mu * astro::sqr(y[0] - 1.0 + mu) * r2_5;
+//
+//        const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] * r2_5;
+//
+//        const double O_yy = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[1]) * r1_5 +
+//                            3.0 * mu * astro::sqr(y[1]) * r2_5;
+//
+//        // Variational equations for one deviation vector.
+//        dydt[4] = y[6];
+//        dydt[5] = y[7];
+//        dydt[6] = O_xx * y[4] + O_xy * y[5] + 2.0 * y[7];
+//        dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
+//    }
+//}  // namespace model
 
 namespace ode_integrator {
-    void rkf54(var_t &t, StepControl &step, var_t *y_in, var_t *y_out, int n_var, var_t relTol, var_t absTol,
-               rhs_t *fun, void *par)
+    void rkf54(var_t &t, StepControl &step, var_t relTol, var_t absTol, Model &model, void *par)
     {
         static const double Bi[] = {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0, 0.0};
 
@@ -450,31 +451,44 @@ namespace ode_integrator {
             {-73.0 / 48.0, 0.0, 1312.0 / 231.0, -2025.0 / 448.0, 2875.0 / 2112.0, 0.0},
             {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0}};
 
-        static auto dy = AllocateArray<var_t>(7 * n_var);  ///< Workspace storing the 7 Runge–Kutta stage derivatives.
-        static auto y  = AllocateArray<double>(n_var);     ///< Allocate memory for y
+        const std::size_t n_var = model.getNVar();
+        double* y_in = model.getY();
+
+        static std::size_t allocated_n_var = 0;
+        static std::unique_ptr<var_t[]> dy;
+        static std::unique_ptr<var_t[]> y;
+        static std::unique_ptr<var_t[]> y_out;
+
+        if (n_var != allocated_n_var) {
+            dy = AllocateArray<var_t>(7 * n_var);
+            y = AllocateArray<var_t>(n_var);
+            y_out = AllocateArray<var_t>(n_var);
+
+            allocated_n_var = n_var;
+        }
 
         double t0    = t;
         var_t  temax = 0.0;
 
-        fun(t0, y_in, dy.get(), par);
+        model.f(t0, y_in, dy.get(), par);
         do {
             temax = 0.0;
-            for (int k = 1; k < 7; k++) {
+            for (std::size_t k = 1; k < 7; k++) {
                 t = t0 + Ci[k] * step.h;
 
-                for (int n = 0; n < n_var; n++) {
+                for (std::size_t n = 0; n < n_var; n++) {
                     y[n] = y_in[n];
 
-                    for (int l = 0; l < k; l++)
+                    for (std::size_t l = 0; l < k; l++)
                         y[n] += step.h * Aij[k][l] * dy[l * n_var + n];
                 }
-                fun(t, y.get(), dy.get() + k * n_var, par);
+                model.f(t, y.get(), dy.get() + k * n_var, par);
             }
 
-            for (int n = 0; n < n_var; ++n) {
+            for (std::size_t n = 0; n < n_var; ++n) {
                 y_out[n] = y_in[n];
 
-                for (int k = 0; k < 7; ++k) {
+                for (std::size_t k = 0; k < 7; ++k) {
                     y_out[n] += step.h * Bi[k] * dy[k * n_var + n];
                 }
                 const var_t err = step.h * std::fabs(dy[5 * n_var + n] - dy[6 * n_var + n]) / 60.0;
@@ -489,6 +503,8 @@ namespace ode_integrator {
         } while (temax > 1.0);
         step.h_nxt = step.h;
         t += step.h_did;
+        // Copy the accepted solution to the model state vector.
+        std::copy_n(y_out.get(), n_var, model.getY());
     }
 }  // namespace ode_integrator
 
@@ -774,28 +790,6 @@ namespace {
         return data;
     }
 
-    int SetN_var(ComputeMode mode)
-    {
-        int n_var = 0;
-        switch (mode) {
-            case ComputeMode::ORBIT:
-                n_var = 4;  // Number of variables in the system (x, y, vx, vy)
-                break;
-            case ComputeMode::FLI:
-                n_var = 8;  // Orbit and variational equations (4 state + 4 deviation variables).
-                break;
-            case ComputeMode::LCI:
-                n_var = 8;  // Orbit and variational equations (4 state + 4 deviation variables).
-                break;
-            case ComputeMode::RLI:  // Two sets of orbit and variational equations
-                n_var = 16;         // Two sets of initial conditions (4 state + 4 deviation variables).
-                break;
-            default:
-                throw std::runtime_error("Unknown computation mode.");
-        }
-        return n_var;
-    }
-
     /**
      * @brief Initializes the state vector at the L4 Lagrange point.
      *
@@ -917,7 +911,8 @@ namespace chaos_indicator {
             throw std::domain_error("Cannot compute LCI at the initial time.");
         }
 
-        const double current_norm = std::sqrt(astro::sqr(y[4]) + astro::sqr(y[5]) + astro::sqr(y[6]) + astro::sqr(y[7]));
+        const double current_norm =
+            std::sqrt(astro::sqr(y[4]) + astro::sqr(y[5]) + astro::sqr(y[6]) + astro::sqr(y[7]));
 
         const double initial_norm = std::sqrt(astro::sqr(initial_deviation[0]) + astro::sqr(initial_deviation[1]) +
                                               astro::sqr(initial_deviation[2]) + astro::sqr(initial_deviation[3]));
@@ -1050,26 +1045,39 @@ int main(int argc, char *argv[])
         ParseCommandLine(argc, argv, opt);
         if (opt.show_version) {
             print::Version();
+            return EXIT_SUCCESS;
         }
         if (opt.show_help) {
             print::Help();
+            return EXIT_SUCCESS;
         }
 
         const InitData init = ReadInitData(opt.input_path);
-
-        model::CRTBP2DParams param(init.mu);
-
-        GridIterator grid(init);
         if (opt.verbose) {
             print::InputData(opt, init);
         }
+        //std::size_t n_var = SetN_var(init.compute);
 
-        int n_var = SetN_var(init.compute);
+        CRTBP2D model(init.mu);
+        //model.setNVar(n_var);
 
-        std::unique_ptr<double[]> y_in =
-            AllocateArray<double>(n_var);  // Allocate an array of n_var doubles for initial conditions
-        std::unique_ptr<double[]> y_out =
-            AllocateArray<double>(n_var);  // Allocate an array of n_var doubles for intermedient results
+        switch (init.compute) {
+            case ComputeMode::ORBIT:
+                model.setNVar(4);     // Number of variables in the system (x, y, vx, vy)
+                break;
+            case ComputeMode::FLI:
+                model.setNVar(8);     // Orbit and variational equations (4 state + 4 deviation variables).
+                model.setFunction(&Model::varfun);
+                break;
+            case ComputeMode::LCI:
+            case ComputeMode::RLI:
+                throw std::runtime_error("LCI and RLI modes are not yet implemented.");
+                break;
+            default:
+                throw std::runtime_error("Unknown computation mode.");
+        }
+
+        GridIterator grid(init);
 
         /* If the -o option is specified then the output is written to a file */
         /** Output file stream. */
@@ -1077,9 +1085,9 @@ int main(int argc, char *argv[])
         /** Output stream used by the program. */
         std::ostream *out = OpenOutputStream(opt, fout);
 
-        double relTol = 1.0e-6;
-        double absTol = 1.0e-10;
-        double t      = init.t0;
+        double     relTol     = 1.0e-6;
+        double     absTol     = 1.0e-10;
+        double     t          = init.t0;
         const auto start_time = std::chrono::steady_clock::now();
         do {
             t = init.t0;
@@ -1091,7 +1099,7 @@ int main(int argc, char *argv[])
 
             double a = grid.a();
             double e = grid.e();
-            GetInitialCondition(param.mu, init.dy, a, e, y_in.get());  // Get initial conditions for the current (a,e)
+            GetInitialCondition(model.getParams()->mu, init.dy, a, e, model.getY());  // Get initial conditions for the current (a,e)
             // InitializeL4(param, y_in.get());  // Initialize at L4 point)
             // y_in[0] += 3.0e-2;
             // y_in[4] = 1.0;
@@ -1099,10 +1107,10 @@ int main(int argc, char *argv[])
             step.n_tst = 0;
             step.n_int = 0;
             grid.PrintProgress();
+
             do {
                 if (step.n_tst % 10 == 0) {
-                    if (!CheckFinite(y_in.get(), n_var))
-                    {
+                    if (!CheckFinite(model.getY(), model.getNVar())) {
                         std::cerr << " Error at grid point. Proceed to the next grid point.\n";
                         break;
                     }
@@ -1110,17 +1118,14 @@ int main(int argc, char *argv[])
 
                 LimitStep(t, init.T, step);  // Limit the step size to not exceed the final time
 
+                ode_integrator::rkf54(t, step, relTol, absTol, model, model.getParams());
+
                 switch (init.compute) {
                     case ComputeMode::ORBIT:
-                        print::State(*out, grid, init, t, y_in.get(), n_var,
-                                     fli);  // Print the state (time and variables)
-                        ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
-                                              model::CRTBP2Dfun, (void *)&param);
+                        model.printState(*out, t, model.getY());  // Print the state (time and variables)
                         break;
                     case ComputeMode::FLI:
-                        ode_integrator::rkf54(t, step, y_in.get(), y_out.get(), n_var, relTol, absTol,
-                                              model::CRTBP2DVariationalFun, (void *)&param);
-                        fli = chaos_indicator::ComputeFLI(y_out.get(), fli);
+                        fli = chaos_indicator::ComputeFLI(model.getY(), fli);
                         break;
                     case ComputeMode::LCI:
                     case ComputeMode::RLI:
@@ -1129,16 +1134,13 @@ int main(int argc, char *argv[])
                     default:
                         throw std::runtime_error("Unknown computation mode.");
                 }
-                // print::State(*out, grid, init, t, y_out.get(), n_var, fli);  // Print the initial state (time and
-                // variables)
-                std::copy_n(y_out.get(), n_var, y_in.get());
                 step.n_int++;
                 step.n_tst++;
 
             } while (t < init.T);  // std::abs(init.T - t) > TIME_EPS);
-            print::State(*out, grid, init, t, y_in.get(), n_var, fli);  // Print the state (time and variables)
+            print::State(*out, grid, init, t, model.getY(), model.getNVar(), fli);  // Print the state (time and variables)
         } while (grid.Next());
-        const auto end_time = std::chrono::steady_clock::now();
+        const auto                          end_time     = std::chrono::steady_clock::now();
         const std::chrono::duration<double> elapsed_time = end_time - start_time;
         std::cout << "\n" << "Total runtime : " << elapsed_time.count() << " s\n";
 
