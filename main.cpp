@@ -28,63 +28,136 @@ static constexpr const char *PROGRAM_VERSION = "1.1";
 constexpr double TIME_EPS = 1.0e-15;
 
 typedef double var_t;
-/* prototype of the right-hand side of the diff. eq. system */
-//typedef void rhs_t(double x, const double *y, double *dy, void *par);
 
 /**
- * @brief Computation modes.
+ * @brief Specifies the overall computation mode.
  */
-enum class ComputeMode {
-    ORBIT,  ///< Integrate only the orbit.
-    FLI,    ///< Fast Lyapunov Indicator.
-    LCI,    ///< Lyapunov Characteristic Indicator.
-    RLI     ///< Relative Lyapunov Indicator.
+enum class RunMode {
+    ORBIT,     /**< Integrate a single orbit and save the state evolution. */
+    INDICATOR, /**< Integrate a single orbit and save an indicator evolution. */
+    GRID       /**< Integrate orbits over a parameter grid and save final indicator values. */
 };
+/**
+ * @brief Returns the name of a run mode.
+ *
+ * @param mode Run mode.
+ * @return Name of the run mode.
+ */
+/**
+ * @brief Returns the name of a run mode.
+ *
+ * @param mode Run mode.
+ * @return Name of the run mode.
+ */
+const char *RunModeToString(RunMode mode)
+{
+    switch (mode) {
+        case RunMode::ORBIT:
+            return "ORBIT";
+
+        case RunMode::INDICATOR:
+            return "INDICATOR";
+
+        case RunMode::GRID:
+            return "GRID";
+    }
+
+    return "UNKNOWN";
+}
+
+/**
+ * @brief Specifies the chaos indicator to be computed.
+ */
+enum class IndicatorType {
+    NONE, /**< No chaos indicator is computed. */
+    FLI,  /**< Fast Lyapunov Indicator. */
+    LCI,  /**< Lyapunov Characteristic Indicator. */
+    RLI   /**< Relative Lyapunov Indicator. */
+};
+/**
+ * @brief Returns the name of a chaos indicator.
+ *
+ * @param indicator Indicator type.
+ * @return Name of the indicator.
+ */
+const char *IndicatorTypeToString(IndicatorType indicator)
+{
+    switch (indicator) {
+        case IndicatorType::NONE:
+            return "NONE";
+
+        case IndicatorType::FLI:
+            return "FLI";
+
+        case IndicatorType::LCI:
+            return "LCI";
+
+        case IndicatorType::RLI:
+            return "RLI";
+    }
+
+    return "UNKNOWN";
+}
 
 /**
  * @brief Command-line options.
  *
- * Stores the input and output file and directory names together with
- * flags controlling the display of help and version information.
+ * Stores the input and output file names, directories, and full paths,
+ * together with flags controlling the display of help, version, and
+ * verbose information.
  */
 struct CommandLineOptions {
-    /** Input file name. */
+    /** Input file name without directory path. */
+    std::string input_file;
+
+    /** Full path of the input file. */
     std::string input_path;
+
     /** Input directory. */
-    std::string input_dir = ".";
-    /** Output file name. */
+    std::string input_dir;
+
+    /** Output file name without directory path. */
+    std::string output_file;
+
+    /** Full path of the output file. */
     std::string output_path;
+
     /** Output directory. */
-    std::string output_dir = ".";
+    std::string output_dir;
+
     /** Display help message. */
     bool show_help = false;
+
     /** Display program version. */
     bool show_version = false;
+
     /** Display verbose output. */
     bool verbose = false;
 
     /**
      * @brief Prints the command-line options.
      *
-     * Prints all stored command-line options in a human-readable form.
+     * Prints the input and output file names, directories, and full paths,
+     * together with the command-line flags in a human-readable format.
      *
-     * @param os Output stream.
+     * @param os Output stream. Defaults to std::cout.
      */
     void Print(std::ostream &os = std::cout) const
     {
         os << "----------------------------------------\n";
         os << "Command-line options\n";
         os << "----------------------------------------\n";
-        os << "Input file    : " << input_path << '\n'
+        os << "Input file    : " << input_file << '\n'
            << "Input dir     : " << input_dir << '\n'
-           << "Output file   : " << output_path << '\n'
+           << "Input path    : " << input_path << '\n'
+           << "Output file   : " << output_file << '\n'
            << "Output dir    : " << output_dir << '\n'
+           << "Output path   : " << output_path << '\n'
            << "Show help     : " << std::boolalpha << show_help << '\n'
            << "Show version  : " << std::boolalpha << show_version << '\n'
            << "Verbose       : " << std::boolalpha << verbose << '\n';
     }
 };
-
 /**
  * @brief Stores the input parameters of the simulation.
  *
@@ -94,9 +167,16 @@ struct CommandLineOptions {
  */
 struct InitData {
     /**
-     * @brief Computation mode.
+     * @brief Overall computation mode.
      */
-    ComputeMode compute = ComputeMode::ORBIT;
+    RunMode run_mode = RunMode::ORBIT;
+
+    /**
+     * @brief Chaos indicator to be computed.
+     *
+     * Must be IndicatorType::NONE in ORBIT mode.
+     */
+    IndicatorType indicator = IndicatorType::NONE;
     /// Mass parameter.
     double mu = 0.0;
 
@@ -104,19 +184,25 @@ struct InitData {
     double t0 = 0.0;
     /// Length of integration [time unit].
     double T = 0.0;
-
+    /**
+     * @brief Output time interval.
+     *
+     * Specifies the time interval between consecutive output records
+     * in ORBIT and INDICATOR modes.
+     */
+    double output_dt = 0.0;
     /// Minimum semimajor axis.
     double a0 = 0.0;
     /// Maximum semimajor axis.
     double a1 = 0.0;
-    /// Number of semimajor-axis intervals.
+    /// Number of intervals along the semimajor-axis dimension.
     std::uint32_t Na = 0;
 
     /// Minimum eccentricity.
     double e0 = 0.0;
     /// Maximum eccentricity.
     double e1 = 0.0;
-    /// Number of eccentricity intervals.
+    /// Number of intervals along the eccentricity dimension.
     std::uint32_t Ne = 0;
 
     /**
@@ -140,7 +226,9 @@ struct InitData {
         os << "InitData contents\n";
         os << "----------------------------------------\n";
 
-        os << "compute : " << ComputeModeToString(compute) << "\n";
+        os << "run mode  : " << RunModeToString(run_mode) << '\n';
+        os << "indicator : " << IndicatorTypeToString(indicator) << '\n';
+        os << "output dt : " << std::setw(W) << output_dt << " [time unit]\n";
         os << "mu = " << std::setw(W) << mu << "\n";
         os << "t0 = " << std::setw(W) << t0 << " [time unit]\n";
         os << "T  = " << std::setw(W) << T << " [time unit]\n";
@@ -150,34 +238,12 @@ struct InitData {
         os << "e0 = " << std::setw(W) << e0 << '\n';
         os << "e1 = " << std::setw(W) << e1 << '\n';
         os << "Ne = " << std::setw(W) << Ne << '\n';
-        if (compute == ComputeMode::FLI || compute == ComputeMode::LCI || compute == ComputeMode::RLI) {
+        if (indicator != IndicatorType::NONE) {
             os << "dy1 = " << std::setw(W) << dy[0] << '\n';
             os << "dy2 = " << std::setw(W) << dy[1] << '\n';
             os << "dy3 = " << std::setw(W) << dy[2] << '\n';
             os << "dy4 = " << std::setw(W) << dy[3] << '\n';
         }
-    }
-
-    /**
-     * @brief Returns the name of a computation mode.
-     *
-     * @param mode Computation mode.
-     * @return Mode name.
-     */
-    const char *ComputeModeToString(const ComputeMode mode) const
-    {
-        switch (mode) {
-            case ComputeMode::ORBIT:
-                return "ORBIT";
-            case ComputeMode::FLI:
-                return "FLI";
-            case ComputeMode::LCI:
-                return "LCI";
-            case ComputeMode::RLI:
-                return "RLI";
-        }
-
-        return "UNKNOWN";
     }
 };
 
@@ -332,108 +398,109 @@ std::unique_ptr<T[]> AllocateArray(std::size_t n)
     return std::make_unique<T[]>(n);
 }
 
-//namespace model {
-//    /**
-//     * @brief Parameters of the planar circular restricted three-body problem.
-//     */
-//    struct CRTBP2DParams {
-//        /**
-//         * @brief Gravitational mass parameter.
-//         */
-//        double mu;
+// namespace model {
+//     /**
+//      * @brief Parameters of the planar circular restricted three-body problem.
+//      */
+//     struct CRTBP2DParams {
+//         /**
+//          * @brief Gravitational mass parameter.
+//          */
+//         double mu;
 //
-//        /**
-//         * @brief Constructs the parameter set.
-//         *
-//         * @param mu Gravitational mass parameter.
-//         */
-//        explicit CRTBP2DParams(double mu) : mu(mu)
-//        {
-//        }
-//    };
+//         /**
+//          * @brief Constructs the parameter set.
+//          *
+//          * @param mu Gravitational mass parameter.
+//          */
+//         explicit CRTBP2DParams(double mu) : mu(mu)
+//         {
+//         }
+//     };
 //
-//    /**
-//     * @brief Computes the right-hand side of the planar circular restricted three-body problem.
-//     *
-//     * Evaluates the first-order equations of motion in the rotating (synodic)
-//     * reference frame. The state vector is defined as
-//     * y = (x, y, vx, vy), and the output vector contains the corresponding
-//     * time derivatives
-//     * dydt = (dx/dt, dy/dt, dvx/dt, dvy/dt).
-//     *
-//     * @param t Current time (unused, as the equations are autonomous).
-//     * @param y Input state vector (x, y, vx, vy).
-//     * @param dydt Output time derivatives of the state vector.
-//     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
-//     */
-//    void CRTBP2Dfun(double t, const double *y, double *dydt, void *par)
-//    {
-//        (void)t;  // Suppress unused parameter warning.
+//     /**
+//      * @brief Computes the right-hand side of the planar circular restricted three-body problem.
+//      *
+//      * Evaluates the first-order equations of motion in the rotating (synodic)
+//      * reference frame. The state vector is defined as
+//      * y = (x, y, vx, vy), and the output vector contains the corresponding
+//      * time derivatives
+//      * dydt = (dx/dt, dy/dt, dvx/dt, dvy/dt).
+//      *
+//      * @param t Current time (unused, as the equations are autonomous).
+//      * @param y Input state vector (x, y, vx, vy).
+//      * @param dydt Output time derivatives of the state vector.
+//      * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
+//      */
+//     void CRTBP2Dfun(double t, const double *y, double *dydt, void *par)
+//     {
+//         (void)t;  // Suppress unused parameter warning.
 //
-//        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
-//        const double mu = p->mu;
+//         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
+//         const double mu = p->mu;
 //
-//        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
-//        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
+//         const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
+//         const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
 //
-//        const double r1_3 = 1.0 / (r1 * r1 * r1);
-//        const double r2_3 = 1.0 / (r2 * r2 * r2);
+//         const double r1_3 = 1.0 / (r1 * r1 * r1);
+//         const double r2_3 = 1.0 / (r2 * r2 * r2);
 //
-//        // Equations of motion in the rotating frame.
-//        dydt[0] = y[2];                                                                                 ///< dx/dt
-//        dydt[1] = y[3];                                                                                 ///< dy/dt
-//        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;  ///< dvx/dt
-//        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);                           ///< dvy/dt
-//    }
+//         // Equations of motion in the rotating frame.
+//         dydt[0] = y[2];                                                                                 ///< dx/dt
+//         dydt[1] = y[3];                                                                                 ///< dy/dt
+//         dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;  ///< dvx/dt
+//         dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);                           ///< dvy/dt
+//     }
 //
-//    /**
-//     * @brief Computes the right-hand side of the planar CRTBP and its variational equations.
-//     *
-//     * Evaluates the equations of motion and one deviation vector in the rotating
-//     * (synodic) reference frame. The state vector is defined as
-//     * y = (x, y, vx, vy, dx, dy, dvx, dvy).
-//     *
-//     * @param t Current time (unused, as the equations are autonomous).
-//     * @param y Input state vector and deviation vector.
-//     * @param dydt Output derivatives of the state and deviation vectors.
-//     * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
-//     */
-//    void CRTBP2DVariationalFun(double t, const double *y, double *dydt, void *par)
-//    {
-//        (void)t;  // Suppress unused parameter warning.
+//     /**
+//      * @brief Computes the right-hand side of the planar CRTBP and its variational equations.
+//      *
+//      * Evaluates the equations of motion and one deviation vector in the rotating
+//      * (synodic) reference frame. The state vector is defined as
+//      * y = (x, y, vx, vy, dx, dy, dvx, dvy).
+//      *
+//      * @param t Current time (unused, as the equations are autonomous).
+//      * @param y Input state vector and deviation vector.
+//      * @param dydt Output derivatives of the state and deviation vectors.
+//      * @param par Pointer to a @c CRTBP2DParams structure containing the mass parameter.
+//      */
+//     void CRTBP2DVariationalFun(double t, const double *y, double *dydt, void *par)
+//     {
+//         (void)t;  // Suppress unused parameter warning.
 //
-//        const auto  *p  = static_cast<const CRTBP2DParams *>(par);
-//        const double mu = p->mu;
+//         const auto  *p  = static_cast<const CRTBP2DParams *>(par);
+//         const double mu = p->mu;
 //
-//        const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
-//        const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
+//         const double r1 = std::sqrt(astro::sqr(y[0] + mu) + astro::sqr(y[1]));
+//         const double r2 = std::sqrt(astro::sqr(y[0] - 1.0 + mu) + astro::sqr(y[1]));
 //
-//        const double r1_3 = 1.0 / (r1 * r1 * r1);
-//        const double r2_3 = 1.0 / (r2 * r2 * r2);
-//        const double r1_5 = r1_3 / (r1 * r1);
-//        const double r2_5 = r2_3 / (r2 * r2);
+//         const double r1_3 = 1.0 / (r1 * r1 * r1);
+//         const double r2_3 = 1.0 / (r2 * r2 * r2);
+//         const double r1_5 = r1_3 / (r1 * r1);
+//         const double r2_5 = r2_3 / (r2 * r2);
 //
-//        // Equations of motion in the rotating frame.
-//        dydt[0] = y[2];
-//        dydt[1] = y[3];
-//        dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
-//        dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
+//         // Equations of motion in the rotating frame.
+//         dydt[0] = y[2];
+//         dydt[1] = y[3];
+//         dydt[2] = 2.0 * y[3] + y[0] - (1.0 - mu) * (y[0] + mu) * r1_3 - mu * (y[0] - 1.0 + mu) * r2_3;
+//         dydt[3] = -2.0 * y[2] + y[1] * (1.0 - (1.0 - mu) * r1_3 - mu * r2_3);
 //
-//        const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[0] + mu) * r1_5 +
-//                            3.0 * mu * astro::sqr(y[0] - 1.0 + mu) * r2_5;
+//         const double O_xx = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[0] + mu) * r1_5 +
+//                             3.0 * mu * astro::sqr(y[0] - 1.0 + mu) * r2_5;
 //
-//        const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] * r2_5;
+//         const double O_xy = 3.0 * (1.0 - mu) * (y[0] + mu) * y[1] * r1_5 + 3.0 * mu * (y[0] - 1.0 + mu) * y[1] *
+//         r2_5;
 //
-//        const double O_yy = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[1]) * r1_5 +
-//                            3.0 * mu * astro::sqr(y[1]) * r2_5;
+//         const double O_yy = 1.0 - (1.0 - mu) * r1_3 - mu * r2_3 + 3.0 * (1.0 - mu) * astro::sqr(y[1]) * r1_5 +
+//                             3.0 * mu * astro::sqr(y[1]) * r2_5;
 //
-//        // Variational equations for one deviation vector.
-//        dydt[4] = y[6];
-//        dydt[5] = y[7];
-//        dydt[6] = O_xx * y[4] + O_xy * y[5] + 2.0 * y[7];
-//        dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
-//    }
-//}  // namespace model
+//         // Variational equations for one deviation vector.
+//         dydt[4] = y[6];
+//         dydt[5] = y[7];
+//         dydt[6] = O_xx * y[4] + O_xy * y[5] + 2.0 * y[7];
+//         dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
+//     }
+// }  // namespace model
 
 namespace ode_integrator {
     void rkf54(var_t &t, StepControl &step, var_t relTol, var_t absTol, Model &model, void *par)
@@ -452,16 +519,16 @@ namespace ode_integrator {
             {17.0 / 192.0, 0.0, 64.0 / 231.0, 2187.0 / 8960.0, 2875.0 / 8448.0, 1.0 / 20.0}};
 
         const std::size_t n_var = model.getNVar();
-        double* y_in = model.getY();
+        double           *y_in  = model.getY();
 
-        static std::size_t allocated_n_var = 0;
+        static std::size_t              allocated_n_var = 0;
         static std::unique_ptr<var_t[]> dy;
         static std::unique_ptr<var_t[]> y;
         static std::unique_ptr<var_t[]> y_out;
 
         if (n_var != allocated_n_var) {
-            dy = AllocateArray<var_t>(7 * n_var);
-            y = AllocateArray<var_t>(n_var);
+            dy    = AllocateArray<var_t>(7 * n_var);
+            y     = AllocateArray<var_t>(n_var);
             y_out = AllocateArray<var_t>(n_var);
 
             allocated_n_var = n_var;
@@ -502,7 +569,8 @@ namespace ode_integrator {
             step.h     = 0.9 * step.h_did * std::pow(1.0 / temax, 1.0 / 5.0);
         } while (temax > 1.0);
         step.h_nxt = step.h;
-        t += step.h_did;
+        // Advance to the end of the accepted integration step.
+        t = t0 + step.h_did;
         // Copy the accepted solution to the model state vector.
         std::copy_n(y_out.get(), n_var, model.getY());
     }
@@ -511,29 +579,20 @@ namespace ode_integrator {
 namespace {
 
     /**
-     * @brief Parses the command-line arguments.
+     * @brief Parses command-line arguments.
      *
-     * Processes the supported command-line options and stores the results
-     * in the supplied CommandLineOptions structure. The input and output
-     * directory names are automatically extracted from the corresponding
-     * file paths. If no directory is specified, the current working
-     * directory (".") is used.
+     * Processes the input and output file options and stores the file name,
+     * directory, and absolute path separately.
      *
-     * Supported options:
-     *   -i <path>    Input file.
-     *   -o <path>    Output file.
-     *   -h           Display help message.
-     *   --help       Display help message.
-     *   -v           Display program version.
-     *   --version    Display program version.
+     * The -i and -o options may specify either a file name in the current
+     * working directory or a file name including a directory path.
      *
-     * @param[in] argc Number of command-line arguments.
-     * @param[in] argv Command-line argument vector.
-     * @param[out] opt Parsed command-line options.
+     * @param argc Number of command-line arguments.
+     * @param argv Array of command-line arguments.
+     * @param opt Structure receiving the parsed command-line options.
      *
-     * @throws std::runtime_error
-     *         If an unknown option is encountered or if a required
-     *         argument is missing.
+     * @throws std::runtime_error If an option is missing its argument or an
+     *         unknown command-line option is encountered.
      */
     void ParseCommandLine(int argc, char *argv[], CommandLineOptions &opt)
     {
@@ -541,35 +600,41 @@ namespace {
             const std::string arg(argv[i]);
 
             if (arg == "-i") {
-                if (++i >= argc)
+                if (++i >= argc) {
                     throw std::runtime_error("Missing argument after '-i'.");
+                }
 
-                fs::path p(argv[i]);
+                const fs::path p = fs::absolute(fs::path(argv[i]));
 
-                opt.input_path = p.filename().string();
-                opt.input_dir  = p.has_parent_path() ? p.parent_path().string() : ".";
+                opt.input_file = p.filename().string();
+                opt.input_dir  = p.parent_path().string();
+                opt.input_path = p.string();
+
             } else if (arg == "-o") {
-                if (++i >= argc)
+                if (++i >= argc) {
                     throw std::runtime_error("Missing argument after '-o'.");
+                }
 
-                fs::path p(argv[i]);
+                const fs::path p = fs::absolute(fs::path(argv[i]));
 
-                opt.output_path = p.filename().string();
-                opt.output_dir  = p.has_parent_path() ? p.parent_path().string() : ".";
+                opt.output_file = p.filename().string();
+                opt.output_dir  = p.parent_path().string();
+                opt.output_path = p.string();
+
             } else if (arg == "-h" || arg == "--help") {
                 opt.show_help = true;
+
             } else if (arg == "-v" || arg == "--version") {
                 opt.show_version = true;
+
             } else if (arg == "--verbose") {
                 opt.verbose = true;
-            }
 
-            else {
+            } else {
                 throw std::runtime_error("Unknown command-line option: " + arg);
             }
         }
     }
-
     /**
      * @brief Removes all whitespace characters from a string.
      *
@@ -581,33 +646,64 @@ namespace {
     }
 
     /**
-     * @brief Converts a string to a computation mode.
+     * @brief Converts a string to a run mode.
      *
-     * @param text Computation mode as text.
-     * @return Corresponding computation mode.
+     * @param text Run mode as text.
      *
-     * @throw std::runtime_error If the mode is unknown.
+     * @return Corresponding run mode.
+     *
+     * @throws std::runtime_error If the run mode is unknown.
      */
-    ComputeMode ParseComputeMode(const std::string &text)
+    RunMode ParseRunMode(const std::string &text)
     {
         std::string mode(text);
+
         std::transform(mode.begin(), mode.end(), mode.begin(),
                        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
 
         if (mode == "ORBIT") {
-            return ComputeMode::ORBIT;
+            return RunMode::ORBIT;
         }
-        if (mode == "FLI") {
-            return ComputeMode::FLI;
+        if (mode == "INDICATOR") {
+            return RunMode::INDICATOR;
         }
-        if (mode == "LCI") {
-            return ComputeMode::LCI;
-        }
-        if (mode == "RLI") {
-            return ComputeMode::RLI;
+        if (mode == "GRID") {
+            return RunMode::GRID;
         }
 
-        throw std::runtime_error("Unknown computation mode: " + text);
+        throw std::runtime_error("Unknown run mode: " + text);
+    }
+
+    /**
+     * @brief Converts a string to a chaos-indicator type.
+     *
+     * @param text Indicator type as text.
+     *
+     * @return Corresponding indicator type.
+     *
+     * @throws std::runtime_error If the indicator type is unknown.
+     */
+    IndicatorType ParseIndicatorType(const std::string &text)
+    {
+        std::string indicator(text);
+
+        std::transform(indicator.begin(), indicator.end(), indicator.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+        if (indicator == "NONE") {
+            return IndicatorType::NONE;
+        }
+        if (indicator == "FLI") {
+            return IndicatorType::FLI;
+        }
+        if (indicator == "LCI") {
+            return IndicatorType::LCI;
+        }
+        if (indicator == "RLI") {
+            return IndicatorType::RLI;
+        }
+
+        throw std::runtime_error("Unknown indicator type: " + text);
     }
 
     /**
@@ -645,8 +741,13 @@ namespace {
         const std::string key   = text.substr(0, pos);
         const std::string value = text.substr(pos + 1);
 
-        if (key == "compute") {
-            data.compute = ParseComputeMode(value);
+        if (key == "mode") {
+            data.run_mode = ParseRunMode(value);
+            return;
+        }
+
+        if (key == "indicator") {
+            data.indicator = ParseIndicatorType(value);
             return;
         }
 
@@ -657,6 +758,8 @@ namespace {
             is >> data.t0;
         } else if (key == "T") {
             is >> data.T;
+        } else if (key == "output_dt") {
+            is >> data.output_dt;
         } else if (key == "a0") {
             is >> data.a0;
         } else if (key == "a1") {
@@ -687,44 +790,63 @@ namespace {
     }
 
     /**
-     * @brief Validates the initialization data.
+     * @brief Validates the input data.
      *
-     * @param data Initialization data.
+     * Checks the consistency of the run mode, indicator type, output interval,
+     * integration interval, and grid parameters.
      *
-     * @throws std::runtime_error If any parameter is invalid.
+     * @param data Input data to validate.
+     *
+     * @throws std::runtime_error If the input data are inconsistent.
      */
     void ValidateInitData(const InitData &data)
     {
-        if (data.mu <= 0.0 || data.mu >= 0.5) {
-            throw std::runtime_error("Invalid mass parameter.");
+        if (data.T <= data.t0) {
+            throw std::runtime_error("T must be greater than t0.");
         }
 
-        if (data.T <= 0.0) {
-            throw std::runtime_error("Integration time must be positive.");
-        }
+        switch (data.run_mode) {
+            case RunMode::ORBIT:
+                if (data.indicator != IndicatorType::NONE) {
+                    throw std::runtime_error("ORBIT mode requires indicator = NONE.");
+                }
 
-        if (data.a1 < data.a0) {
-            throw std::runtime_error("a1 must be greater than or equal to a0.");
-        }
+                if (data.output_dt <= 0.0) {
+                    throw std::runtime_error("ORBIT mode requires output_dt > 0.");
+                }
+                break;
 
-        if (data.Na == 0) {
-            throw std::runtime_error("Na must be positive.");
-        }
+            case RunMode::INDICATOR:
+                if (data.indicator == IndicatorType::NONE) {
+                    throw std::runtime_error("INDICATOR mode requires an indicator.");
+                }
 
-        if (data.e0 < 0.0 || data.e0 >= 1.0) {
-            throw std::runtime_error("e0 must be in the range [0, 1).");
-        }
+                if (data.output_dt <= 0.0) {
+                    throw std::runtime_error("INDICATOR mode requires output_dt > 0.");
+                }
+                break;
 
-        if (data.e1 < 0.0 || data.e1 >= 1.0) {
-            throw std::runtime_error("e1 must be in the range [0, 1).");
-        }
+            case RunMode::GRID:
+                if (data.indicator == IndicatorType::NONE) {
+                    throw std::runtime_error("GRID mode requires an indicator.");
+                }
 
-        if (data.e1 < data.e0) {
-            throw std::runtime_error("e1 must be greater than or equal to e0.");
-        }
+                if (data.Na == 0) {
+                    throw std::runtime_error("GRID mode requires Na > 0.");
+                }
 
-        if (data.Ne == 0) {
-            throw std::runtime_error("Ne must be positive.");
+                if (data.Ne == 0) {
+                    throw std::runtime_error("GRID mode requires Ne > 0.");
+                }
+
+                if (data.a1 < data.a0) {
+                    throw std::runtime_error("GRID mode requires a1 >= a0.");
+                }
+
+                if (data.e1 < data.e0) {
+                    throw std::runtime_error("GRID mode requires e1 >= e0.");
+                }
+                break;
         }
     }
 
@@ -732,8 +854,7 @@ namespace {
      * @brief Opens the output stream.
      *
      * If an output file is specified on the command line, the file is opened
-     * and the returned stream points to it. Otherwise, the standard output
-     * stream is returned.
+     * using its full path. Otherwise, the standard output stream is returned.
      *
      * @param opt Command-line options.
      * @param fout Output file stream.
@@ -748,12 +869,10 @@ namespace {
             return &std::cout;
         }
 
-        const std::filesystem::path output_file = std::filesystem::path(opt.output_dir) / opt.output_path;
-
-        fout.open(output_file);
+        fout.open(opt.output_path);
 
         if (!fout) {
-            throw std::runtime_error("Cannot open output file.");
+            throw std::runtime_error("Cannot open output file: " + opt.output_path);
         }
 
         return &fout;
@@ -807,17 +926,31 @@ namespace {
         y[3] = 0.0;
     }
 
-    void GetInitialCondition(double mu, const double *dy, double a, double e, double *y)
+    /**
+     * @brief Computes the initial state vector.
+     *
+     * Initializes the orbital state and, if present, the deviation vector.
+     *
+     * @param mu Mass parameter.
+     * @param dy Initial deviation vector.
+     * @param a Semimajor axis.
+     * @param e Eccentricity.
+     * @param y State vector.
+     * @param n_var Number of variables in the state vector.
+     */
+    void GetInitialCondition(double mu, const double *dy, double a, double e, double *y, std::size_t n_var)
     {
         y[0] = a * (1.0 - e) - mu;                                      /// x_0
         y[1] = 0.0;                                                     /// y_0
         y[2] = 0.0;                                                     /// vx_0
         y[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - y[0];  /// vy_0
 
-        y[4] = dy[0];  /// dy_0
-        y[5] = dy[1];  /// dy_1
-        y[6] = dy[2];  /// dy_2
-        y[7] = dy[3];  /// dy_3
+        if (n_var > 4) {
+            y[4] = dy[0];  /// dy_0
+            y[5] = dy[1];  /// dy_1
+            y[6] = dy[2];  /// dy_2
+            y[7] = dy[3];  /// dy_3
+        }
     }
 
     /**
@@ -982,60 +1115,6 @@ namespace print {
         os << "============================================================\n";
     }
 
-    void State(std::ostream &os, const GridIterator &grid, const InitData &init, double t, const double *y,
-               std::size_t n, double MI, bool newline = true)
-    {
-        static bool first_call = true;
-
-        constexpr int W         = 18;
-        constexpr int precision = 10;
-
-        if (first_call) {
-            switch (init.compute) {
-                case ComputeMode::ORBIT:
-                    os << std::left << std::setw(W) << "t" << std::setw(W) << "x" << std::setw(W) << "y" << std::setw(W)
-                       << "vx" << std::setw(W) << "vy" << std::setw(W) << "dy1" << std::setw(W) << "dy2" << std::setw(W)
-                       << "dy3" << std::setw(W) << "dy4" << std::setw(W) << "MI";
-                    os << std::right;
-                    break;
-                case ComputeMode::FLI:
-                    os << std::left << std::setw(W) << " a" << std::setw(W) << " e" << std::setw(W) << " MI";
-                    os << std::right;
-                    break;
-                case ComputeMode::LCI:
-                case ComputeMode::RLI:
-                    throw std::runtime_error("LCI and RLI modes are not yet implemented.");
-                    break;
-                default:
-                    throw std::runtime_error("Unknown computation mode.");
-            }
-            os << '\n';
-        }
-
-        os << std::scientific << std::showpos << std::setprecision(precision);
-        switch (init.compute) {
-            case ComputeMode::ORBIT:
-                os << std::setw(W) << t;
-                for (std::size_t i = 0; i < n; ++i) {
-                    os << std::setw(W) << y[i];
-                }
-                break;
-            case ComputeMode::FLI:
-                os << std::setw(W) << grid.a() << std::setw(W) << grid.e() << std::setw(W) << MI;
-                break;
-            case ComputeMode::LCI:
-            case ComputeMode::RLI:
-                throw std::runtime_error("LCI and RLI modes are not yet implemented.");
-                break;
-            default:
-                throw std::runtime_error("Unknown computation mode.");
-        }
-        if (newline)
-            os << '\n';
-
-        first_call = false;
-    }
-
 }  // namespace print
 
 int main(int argc, char *argv[])
@@ -1056,28 +1135,26 @@ int main(int argc, char *argv[])
         if (opt.verbose) {
             print::InputData(opt, init);
         }
-        //std::size_t n_var = SetN_var(init.compute);
 
         CRTBP2D model(init.mu);
-        //model.setNVar(n_var);
-
-        switch (init.compute) {
-            case ComputeMode::ORBIT:
-                model.setNVar(4);     // Number of variables in the system (x, y, vx, vy)
+        switch (init.indicator) {
+            case IndicatorType::NONE:
+                model.setNVar(4);  // Equations of motion: x, y, vx, vy.
+                model.setFunction(&Model::fun);
                 break;
-            case ComputeMode::FLI:
-                model.setNVar(8);     // Orbit and variational equations (4 state + 4 deviation variables).
+
+            case IndicatorType::FLI:
+                model.setNVar(8);  // Orbit and variational equations: 4 state + 4 deviation variables.
                 model.setFunction(&Model::varfun);
                 break;
-            case ComputeMode::LCI:
-            case ComputeMode::RLI:
-                throw std::runtime_error("LCI and RLI modes are not yet implemented.");
-                break;
-            default:
-                throw std::runtime_error("Unknown computation mode.");
-        }
 
-        GridIterator grid(init);
+            case IndicatorType::LCI:
+            case IndicatorType::RLI:
+                throw std::runtime_error("LCI and RLI indicators are not yet implemented.");
+
+            default:
+                throw std::runtime_error("Unknown indicator type.");
+        }
 
         /* If the -o option is specified then the output is written to a file */
         /** Output file stream. */
@@ -1087,59 +1164,115 @@ int main(int argc, char *argv[])
 
         double     relTol     = 1.0e-6;
         double     absTol     = 1.0e-10;
-        double     t          = init.t0;
         const auto start_time = std::chrono::steady_clock::now();
-        do {
-            t = init.t0;
-            StepControl step;  // Step control structure for adaptive integration
-            step.h     = 0.1;
-            step.h_max = 0.1;
-            step.h_nxt = step.h;
-            double fli = 0.0;  // Initialize the Fast Lyapunov Indicator
 
-            double a = grid.a();
-            double e = grid.e();
-            GetInitialCondition(model.getParams()->mu, init.dy, a, e, model.getY());  // Get initial conditions for the current (a,e)
-            // InitializeL4(param, y_in.get());  // Initialize at L4 point)
-            // y_in[0] += 3.0e-2;
-            // y_in[4] = 1.0;
+        switch (init.run_mode) {
+            case RunMode::ORBIT: {
+                double t = init.t0;
 
-            step.n_tst = 0;
-            step.n_int = 0;
-            grid.PrintProgress();
+                StepControl step;
+                step.h     = 0.1;
+                step.h_max = 0.1;
+                step.h_nxt = step.h;
+                step.n_tst = 0;
+                step.n_int = 0;
 
-            do {
-                if (step.n_tst % 10 == 0) {
-                    if (!CheckFinite(model.getY(), model.getNVar())) {
-                        std::cerr << " Error at grid point. Proceed to the next grid point.\n";
-                        break;
+                // GetInitialCondition(model.getParams()->mu, init.dy, init.a0, init.e0, model.getY(), model.getNVar());
+                InitializeL4(model.getParams()->mu, model.getY());  // Initialize at L4 point
+                model.getY()[0] += 2.0e-2;
+                // Save the initial state.
+                model.printState(*out, t, model.getY());
+                double next_output = init.t0 + init.output_dt;
+
+                while (t < init.T - TIME_EPS) {
+                    if (step.n_tst % 10 == 0) {
+                        if (!CheckFinite(model.getY(), model.getNVar())) {
+                            throw std::runtime_error("Non-finite state encountered during orbit integration.");
+                        }
                     }
-                }
 
-                LimitStep(t, init.T, step);  // Limit the step size to not exceed the final time
+                    const double target_time = std::min(next_output, init.T);
 
-                ode_integrator::rkf54(t, step, relTol, absTol, model, model.getParams());
+                    // Force the integrator to stop exactly at the next output time.
+                    LimitStep(t, target_time, step);
 
-                switch (init.compute) {
-                    case ComputeMode::ORBIT:
-                        model.printState(*out, t, model.getY());  // Print the state (time and variables)
-                        break;
-                    case ComputeMode::FLI:
-                        fli = chaos_indicator::ComputeFLI(model.getY(), fli);
-                        break;
-                    case ComputeMode::LCI:
-                    case ComputeMode::RLI:
-                        throw std::runtime_error("LCI and RLI modes are not yet implemented.");
-                        break;
-                    default:
-                        throw std::runtime_error("Unknown computation mode.");
-                }
-                step.n_int++;
-                step.n_tst++;
+                    ode_integrator::rkf54(t, step, relTol, absTol, model, model.getParams());
 
-            } while (t < init.T);  // std::abs(init.T - t) > TIME_EPS);
-            print::State(*out, grid, init, t, model.getY(), model.getNVar(), fli);  // Print the state (time and variables)
-        } while (grid.Next());
+                    ++step.n_int;
+                    ++step.n_tst;
+
+                    if (t >= next_output - TIME_EPS) {
+                        model.printState(*out, t, model.getY());
+                        next_output += init.output_dt;
+                    }
+                } /* while */
+
+                break;
+            }
+            case RunMode::INDICATOR: {
+                // ...
+                break;
+            }
+
+            case RunMode::GRID: {
+                // ...
+                break;
+            }
+        }
+
+        // do {
+        //     t = init.t0;
+        //     StepControl step;  // Step control structure for adaptive integration
+        //     step.h     = 0.1;
+        //     step.h_max = 0.1;
+        //     step.h_nxt = step.h;
+        //     double fli = 0.0;  // Initialize the Fast Lyapunov Indicator
+
+        //    double a = grid.a();
+        //    double e = grid.e();
+        //    // Get initial conditions for the current (a,e)
+        //    GetInitialCondition(model.getParams()->mu, init.dy, a, e, model.getY(), model.getNVar());
+        //    // InitializeL4(param, y_in.get());  // Initialize at L4 point)
+        //    // y_in[0] += 3.0e-2;
+        //    // y_in[4] = 1.0;
+
+        //    step.n_tst = 0;
+        //    step.n_int = 0;
+        //    grid.PrintProgress();
+
+        //    do {
+        //        if (step.n_tst % 10 == 0) {
+        //            if (!CheckFinite(model.getY(), model.getNVar())) {
+        //                std::cerr << " Error at grid point. Proceed to the next grid point.\n";
+        //                break;
+        //            }
+        //        }
+
+        //        LimitStep(t, init.T, step);  // Limit the step size to not exceed the final time
+
+        //        ode_integrator::rkf54(t, step, relTol, absTol, model, model.getParams());
+
+        //        switch (init.compute) {
+        //            case ComputeMode::ORBIT:
+        //                model.printState(*out, t, model.getY());  // Print the state (time and variables)
+        //                break;
+        //            case ComputeMode::FLI:
+        //                fli = chaos_indicator::ComputeFLI(model.getY(), fli);
+        //                break;
+        //            case ComputeMode::LCI:
+        //            case ComputeMode::RLI:
+        //                throw std::runtime_error("LCI and RLI modes are not yet implemented.");
+        //                break;
+        //            default:
+        //                throw std::runtime_error("Unknown computation mode.");
+        //        }
+        //        step.n_int++;
+        //        step.n_tst++;
+
+        //    } while (t < init.T);  // std::abs(init.T - t) > TIME_EPS);
+        //    print::State(*out, grid, init, t, model.getY(), model.getNVar(),
+        //                 fli);  // Print the state (time and variables)
+        //} while (grid.Next());
         const auto                          end_time     = std::chrono::steady_clock::now();
         const std::chrono::duration<double> elapsed_time = end_time - start_time;
         std::cout << "\n" << "Total runtime : " << elapsed_time.count() << " s\n";
