@@ -1,5 +1,6 @@
 #include "math_utils.h"  // astro::sqr
 #include "model.h"       // Model base class
+#include "orbit.h"       // astro::orbit::elementsToState
 #include "crtbp.h"
 
 #include <algorithm>  /**< std::copy, std::copy_n, std::remove_if. */
@@ -177,11 +178,16 @@ struct InitData {
      * Must be IndicatorType::NONE in ORBIT mode.
      */
     IndicatorType indicator = IndicatorType::NONE;
-    /// Mass parameter.
-    double mu = 0.0;
+
+    /** Mass of the primary body [solar mass]. */
+    double m1 = 0.0;
+
+    /** Mass of the secondary body [solar mass]. */
+    double m2 = 0.0;
 
     /// Initial epoch [time unit].
     double t0 = 0.0;
+
     /// Length of integration [time unit].
     double T = 0.0;
     /**
@@ -191,18 +197,30 @@ struct InitData {
      * in ORBIT and INDICATOR modes.
      */
     double output_dt = 0.0;
-    /// Minimum semimajor axis.
+
+    /**
+     * @brief Initial osculating orbital elements.
+     *
+     * Used in ORBIT and INDICATOR modes.
+     */
+    astro::OrbitalElements elements;
+
+    /** Minimum semimajor axis of the grid. */
     double a0 = 0.0;
-    /// Maximum semimajor axis.
+
+    /** Maximum semimajor axis of the grid. */
     double a1 = 0.0;
-    /// Number of intervals along the semimajor-axis dimension.
+
+    /** Number of semimajor-axis grid intervals. */
     std::uint32_t Na = 0;
 
-    /// Minimum eccentricity.
+    /** Minimum eccentricity of the grid. */
     double e0 = 0.0;
-    /// Maximum eccentricity.
+
+    /** Maximum eccentricity of the grid. */
     double e1 = 0.0;
-    /// Number of intervals along the eccentricity dimension.
+
+    /** Number of eccentricity grid intervals. */
     std::uint32_t Ne = 0;
 
     /**
@@ -222,22 +240,41 @@ struct InitData {
 
         constexpr int W = 16;
 
+        const double mu = m2 / (m1 + m2);
+
         os << "----------------------------------------\n";
         os << "InitData contents\n";
         os << "----------------------------------------\n";
 
         os << "run mode  : " << RunModeToString(run_mode) << '\n';
         os << "indicator : " << IndicatorTypeToString(indicator) << '\n';
-        os << "output dt : " << std::setw(W) << output_dt << " [time unit]\n";
+        os << "m1 = " << std::setw(W) << m1 << " [M_sun]\n";
+        os << "m2 = " << std::setw(W) << m2 << " [M_sun]\n";
         os << "mu = " << std::setw(W) << mu << "\n";
         os << "t0 = " << std::setw(W) << t0 << " [time unit]\n";
         os << "T  = " << std::setw(W) << T << " [time unit]\n";
-        os << "a0 = " << std::setw(W) << a0 << " [distance unit]\n";
-        os << "a1 = " << std::setw(W) << a1 << " [distance unit]\n";
-        os << "Na = " << std::setw(W) << Na << '\n';
-        os << "e0 = " << std::setw(W) << e0 << '\n';
-        os << "e1 = " << std::setw(W) << e1 << '\n';
-        os << "Ne = " << std::setw(W) << Ne << '\n';
+        os << "output dt = " << std::setw(W) << output_dt << " [time unit]\n";
+
+        // Print initial orbital elements for single-orbit modes.
+        if (run_mode == RunMode::ORBIT || run_mode == RunMode::INDICATOR) {
+            os << "a           : " << std::setw(W) << elements.a << '\n'
+               << "e           : " << std::setw(W) << elements.e << '\n'
+               << "i           : " << std::setw(W) << elements.i << " [rad]\n"
+               << "omega       : " << std::setw(W) << elements.omega << " [rad]\n"
+               << "Omega       : " << std::setw(W) << elements.Omega << " [rad]\n"
+               << "tau         : " << std::setw(W) << elements.tau << " [JD]\n";
+        }
+
+        // Print grid parameters only in GRID mode.
+        if (run_mode == RunMode::GRID) {
+            os << "a0          : " << std::setw(W) << a0 << '\n'
+               << "a1          : " << std::setw(W) << a1 << '\n'
+               << "Na          : " << std::setw(W) << Na << '\n'
+               << "e0          : " << std::setw(W) << e0 << '\n'
+               << "e1          : " << std::setw(W) << e1 << '\n'
+               << "Ne          : " << std::setw(W) << Ne << '\n';
+        }
+
         if (indicator != IndicatorType::NONE) {
             os << "dy1 = " << std::setw(W) << dy[0] << '\n';
             os << "dy2 = " << std::setw(W) << dy[1] << '\n';
@@ -752,14 +789,34 @@ namespace {
         }
 
         std::istringstream is(value);
-        if (key == "mu") {
-            is >> data.mu;
+        if (key == "m1") {
+            is >> data.m1;
+        } else if (key == "m2") {
+            is >> data.m2;
         } else if (key == "t0") {
             is >> data.t0;
         } else if (key == "T") {
             is >> data.T;
         } else if (key == "output_dt") {
             is >> data.output_dt;
+        } else if (key == "a") {
+            is >> data.elements.a;
+        } else if (key == "e") {
+            is >> data.elements.e;
+        } else if (key == "i") {
+            double value = 0.0;
+            is >> value;
+            data.elements.i = astro::toRad(value);
+        } else if (key == "omega") {
+            double value = 0.0;
+            is >> value;
+            data.elements.omega = astro::toRad(value);
+        } else if (key == "Omega") {
+            double value = 0.0;
+            is >> value;
+            data.elements.Omega = astro::toRad(value);
+        } else if (key == "tau") {
+            is >> data.elements.tau;
         } else if (key == "a0") {
             is >> data.a0;
         } else if (key == "a1") {
@@ -793,7 +850,10 @@ namespace {
      * @brief Validates the input data.
      *
      * Checks the consistency of the run mode, indicator type, output interval,
-     * integration interval, and grid parameters.
+     * integration interval, orbital elements, and grid parameters.
+     *
+     * In ORBIT and INDICATOR modes, the initial orbital elements are validated.
+     * In GRID mode, the grid definition is validated.
      *
      * @param data Input data to validate.
      *
@@ -814,6 +874,19 @@ namespace {
                 if (data.output_dt <= 0.0) {
                     throw std::runtime_error("ORBIT mode requires output_dt > 0.");
                 }
+
+                if (data.elements.a <= 0.0) {
+                    throw std::runtime_error("Semimajor axis must be greater than zero.");
+                }
+
+                if (data.elements.e < 0.0 || data.elements.e >= 1.0) {
+                    throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
+                }
+
+                if (std::abs(data.elements.i) > 0.0) {
+                    throw std::runtime_error("CRTBP2D currently requires inclination i = 0.");
+                }
+
                 break;
 
             case RunMode::INDICATOR:
@@ -824,6 +897,19 @@ namespace {
                 if (data.output_dt <= 0.0) {
                     throw std::runtime_error("INDICATOR mode requires output_dt > 0.");
                 }
+
+                if (data.elements.a <= 0.0) {
+                    throw std::runtime_error("Semimajor axis must be greater than zero.");
+                }
+
+                if (data.elements.e < 0.0 || data.elements.e >= 1.0) {
+                    throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
+                }
+
+                if (std::abs(data.elements.i) > 0.0) {
+                    throw std::runtime_error("CRTBP2D currently requires inclination i = 0.");
+                }
+
                 break;
 
             case RunMode::GRID:
@@ -846,10 +932,18 @@ namespace {
                 if (data.e1 < data.e0) {
                     throw std::runtime_error("GRID mode requires e1 >= e0.");
                 }
+
+                if (data.a0 <= 0.0) {
+                    throw std::runtime_error("GRID mode requires a0 > 0.");
+                }
+
+                if (data.e0 < 0.0 || data.e1 >= 1.0) {
+                    throw std::runtime_error("GRID mode requires 0 <= e0 <= e1 < 1.");
+                }
+
                 break;
         }
     }
-
     /**
      * @brief Opens the output stream.
      *
@@ -1136,7 +1230,9 @@ int main(int argc, char *argv[])
             print::InputData(opt, init);
         }
 
-        CRTBP2D model(init.mu);
+        const double mu = init.m2 / (init.m1 + init.m2);
+        CRTBP2D      model(mu);
+
         switch (init.indicator) {
             case IndicatorType::NONE:
                 model.setNVar(4);  // Equations of motion: x, y, vx, vy.
@@ -1178,8 +1274,29 @@ int main(int argc, char *argv[])
                 step.n_int = 0;
 
                 // GetInitialCondition(model.getParams()->mu, init.dy, init.a0, init.e0, model.getY(), model.getNVar());
-                InitializeL4(model.getParams()->mu, model.getY());  // Initialize at L4 point
-                model.getY()[0] += 2.0e-2;
+                // InitializeL4(model.getParams()->mu, model.getY());  // Initialize at L4 point
+                // model.getY()[0] += 2.0e-2;
+                const double mu_grav = astro::sqr(astro::k) * (init.m1 + init.m2);
+                // Test transformations
+                {
+                    // Orbital elements -> Cartesian state.
+                    const astro::State state = astro::calcState(mu_grav, init.t0, init.elements);
+
+                    std::cout << "\nInput orbital elements:\n";
+                    astro::print(init.elements, 15);
+
+                    std::cout << "\nCartesian state:\n";
+                    astro::print(state, 15);
+
+                    // Cartesian state -> orbital elements.
+                    const astro::OrbitalElements elements_back = astro::calcOrbitalElements(mu_grav, init.t0, state);
+
+                    std::cout << "\nRecovered orbital elements:\n";
+                    astro::print(elements_back, 15);
+                }
+
+                exit(0);
+
                 // Save the initial state.
                 model.printState(*out, t, model.getY());
                 double next_output = init.t0 + init.output_dt;
