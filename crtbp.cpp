@@ -14,6 +14,39 @@ CRTBP2D::CRTBP2D(double mu)
     param_.mu = mu;
 }
 
+void CRTBP2D::InertialToCRTBP(const astro::State &state, double a2, double n)
+{
+    const double mu = param_.mu;
+    double      *y  = getY();
+
+    const double xi     = state.r.x;
+    const double eta    = state.r.y;
+    const double xiDot  = state.v.x;
+    const double etaDot = state.v.y;
+
+    // Dimensionless barycentric rotating position.
+    y[0] = xi / a2 - mu;
+    y[1] = eta / a2;
+
+    // Dimensionless barycentric rotating velocity.
+    y[2] = xiDot / (n * a2) + eta / a2;
+    y[3] = etaDot / (n * a2) - xi / a2;
+}
+
+void CRTBP2D::GetInitialCondition(double a, double e)
+{
+    const double mu = param_.mu;
+    double      *y  = getY();
+
+    // Initial position at periapsis.
+    y[0] = a * (1.0 - e) - mu;
+    y[1] = 0.0;
+
+    // Initial velocity perpendicular to the x-axis.
+    y[2] = 0.0;
+    y[3] = std::sqrt((1.0 - mu) / a * (1.0 + e) / (1.0 - e)) - a * (1.0 - e);
+}
+
 void CRTBP2D::fun(double t, const double *y, double *dydt, void *par) const
 {
     (void)t;

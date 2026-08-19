@@ -185,6 +185,14 @@ struct InitData {
     /** Mass of the secondary body [solar mass]. */
     double m2 = 0.0;
 
+    /**
+     * @brief Distance between the two primary bodies [AU].
+     *
+     * In the circular restricted three-body problem this is the constant
+     * separation of the primary and secondary bodies.
+     */
+    double a2 = 0.0;
+
     /// Initial epoch [time unit].
     double t0 = 0.0;
 
@@ -793,6 +801,8 @@ namespace {
             is >> data.m1;
         } else if (key == "m2") {
             is >> data.m2;
+        } else if (key == "a2") {
+            is >> data.a2;
         } else if (key == "t0") {
             is >> data.t0;
         } else if (key == "T") {
@@ -875,6 +885,10 @@ namespace {
                     throw std::runtime_error("ORBIT mode requires output_dt > 0.");
                 }
 
+                if (data.a2 <= 0.0) {
+                    throw std::runtime_error("The primary separation a2 must be greater than zero.");
+                }
+
                 if (data.elements.a <= 0.0) {
                     throw std::runtime_error("Semimajor axis must be greater than zero.");
                 }
@@ -896,6 +910,10 @@ namespace {
 
                 if (data.output_dt <= 0.0) {
                     throw std::runtime_error("INDICATOR mode requires output_dt > 0.");
+                }
+
+                if (data.a2 <= 0.0) {
+                    throw std::runtime_error("The primary separation a2 must be greater than zero.");
                 }
 
                 if (data.elements.a <= 0.0) {
@@ -1034,16 +1052,12 @@ namespace {
      */
     void GetInitialCondition(double mu, const double *dy, double a, double e, double *y, std::size_t n_var)
     {
-        y[0] = a * (1.0 - e) - mu;                                      /// x_0
-        y[1] = 0.0;                                                     /// y_0
-        y[2] = 0.0;                                                     /// vx_0
-        y[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - y[0];  /// vy_0
-
+        y[0] = a * (1.0 - e) - mu;                                           /// x_0
+        y[1] = 0.0;                                                          /// y_0
+        y[2] = 0.0;                                                          /// vx_0
+        y[3] = std::sqrt((1 - mu) / a * (1.0 + e) / (1.0 - e)) - y[0] - mu;  /// vy_0
         if (n_var > 4) {
-            y[4] = dy[0];  /// dy_0
-            y[5] = dy[1];  /// dy_1
-            y[6] = dy[2];  /// dy_2
-            y[7] = dy[3];  /// dy_3
+            std::copy_n(dy, 4, y + 4);
         }
     }
 
@@ -1276,11 +1290,18 @@ int main(int argc, char *argv[])
                 // GetInitialCondition(model.getParams()->mu, init.dy, init.a0, init.e0, model.getY(), model.getNVar());
                 // InitializeL4(model.getParams()->mu, model.getY());  // Initialize at L4 point
                 // model.getY()[0] += 2.0e-2;
-                const double mu_grav = astro::sqr(astro::k) * (init.m1 + init.m2);
-                // Test transformations
+
+                // Gravitational parameter of the P1-P2 relative orbit.
+                const double mu_12 = astro::sqr(astro::k) * (init.m1 + init.m2);
+                // Gravitational parameter of the P1-P3 heliocentric orbit.
+                const double mu_13 = astro::sqr(astro::k) * init.m1;
+                // Mean motion of the P1-P2 system.
+                const double n = std::sqrt(mu_12 / astro::cube(init.a2));
+
+#if 0  // Test transformations
                 {
                     // Orbital elements -> Cartesian state.
-                    const astro::State state = astro::calcState(mu_grav, init.t0, init.elements);
+                    const astro::State state = astro::calcState(mu_12, init.t0, init.elements);
 
                     std::cout << "\nInput orbital elements:\n";
                     astro::print(init.elements, 15);
@@ -1289,13 +1310,79 @@ int main(int argc, char *argv[])
                     astro::print(state, 15);
 
                     // Cartesian state -> orbital elements.
-                    const astro::OrbitalElements elements_back = astro::calcOrbitalElements(mu_grav, init.t0, state);
+                    const astro::OrbitalElements elements_back = astro::calcOrbitalElements(mu_12, init.t0, state);
 
                     std::cout << "\nRecovered orbital elements:\n";
                     astro::print(elements_back, 15);
                 }
+#endif
+#if 0  // Test transformations
+                {
+                    // Orbital elements -> heliocentric inertial Cartesian state.
+                    const astro::State state = astro::calcState(mu_13, init.t0, init.elements);
 
-                exit(0);
+                    std::cout << "\n -- Input orbital elements:\n";
+                    astro::print(init.elements, 15);
+
+                    std::cout << "\n -- Heliocentric inertial state:\n";
+                    astro::print(state, 15);
+
+                    // Cartesian state -> orbital elements.
+                    const astro::OrbitalElements elements_back = astro::calcOrbitalElements(mu_13, init.t0, state);
+
+                    std::cout << "\n -- Recovered orbital elements:\n";
+                    astro::print(elements_back, 15);
+
+                    // ------------------------------------------------------------
+                    // Inertial -> rotating CRTBP transformation.
+                    // ------------------------------------------------------------
+
+                    model.InertialToCRTBP(state, init.a2, n);
+                    double y_Inert[4];
+                    std::copy_n(model.getY(), 4, y_Inert);
+                    std::cout << "\n -- CRTBP state from InertialToCRTBP():\n";
+                    std::cout << std::scientific << std::setprecision(15) << "x  = " << y_Inert[0] << '\n'
+                              << "y  = " << y_Inert[1] << '\n'
+                              << "vx = " << y_Inert[2] << '\n'
+                              << "vy = " << y_Inert[3] << '\n';
+
+                    // const double a = init.elements.a / init.a2;
+                    // const double e = init.elements.e;
+
+                    // model.GetInitialCondition(a, e);
+                    // double y_GetIC[4];
+                    // std::copy_n(model.getY(), 4, y_GetIC);
+                    // std::cout << "\n -- CRTBP state from GetInitialCondition():\n";
+                    // std::cout << "x  = " << y_GetIC[0] << '\n'
+                    //           << "y  = " << y_GetIC[1] << '\n'
+                    //           << "vx = " << y_GetIC[2] << '\n'
+                    //           << "vy = " << y_GetIC[3] << '\n';
+
+                    //// Compare the two results using relative errors.
+                    // constexpr double eps = 1.0e-15;
+
+                    // auto RelativeError = [eps](double value, double reference) {
+                    //     if (std::abs(reference) < eps) {
+                    //         return std::abs(value - reference);
+                    //     }
+
+                    //    return std::abs((value - reference) / reference);
+                    //};
+
+                    // std::cout << "\n -- Relative error:\n";
+                    // std::cout << "x  = " << RelativeError(y_Inert[0], y_GetIC[0]) << '\n'
+                    //           << "y  = " << RelativeError(y_Inert[1], y_GetIC[1]) << '\n'
+                    //           << "vx = " << RelativeError(y_Inert[2], y_GetIC[2]) << '\n'
+                    //           << "vy = " << RelativeError(y_Inert[3], y_GetIC[3]) << '\n';
+
+                    exit(0);
+                }
+#endif
+
+                // Orbital elements -> heliocentric inertial Cartesian state.
+                const astro::State state = astro::calcState(mu_13, init.t0, init.elements);
+                // Heliocentric inertial state -> normalized rotating CRTBP state.
+                model.InertialToCRTBP(state, init.a2, n);
 
                 // Save the initial state.
                 model.printState(*out, t, model.getY());
@@ -1325,16 +1412,15 @@ int main(int argc, char *argv[])
                 } /* while */
 
                 break;
-            }
+            } /* ORBIT     */
             case RunMode::INDICATOR: {
                 // ...
                 break;
-            }
-
+            } /* INDICATOR */
             case RunMode::GRID: {
                 // ...
                 break;
-            }
+            } /* GRID      */
         }
 
         // do {
