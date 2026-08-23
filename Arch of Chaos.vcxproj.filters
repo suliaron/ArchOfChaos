@@ -21,12 +21,21 @@
     <ClCompile Include="crtbp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="init_data.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="model.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="model.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="crtbp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="init_data.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

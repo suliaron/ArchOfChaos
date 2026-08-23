@@ -14,6 +14,40 @@
 class Model {
    public:
     /**
+     * @brief Specifies the mathematical formulation of the equations of motion.
+     */
+    enum class Formalism {
+        NEWTONIAN,  /**< Position-velocity formulation. */
+        HAMILTONIAN /**< Canonical Hamiltonian formulation. */
+    };
+
+    /**
+     * @brief Specifies the chaos indicator to be computed.
+     */
+    enum class IndicatorType {
+        NONE, /**< No chaos indicator is computed. */
+        FLI,  /**< Fast Lyapunov Indicator. */
+        LCI,  /**< Lyapunov Characteristic Indicator. */
+        RLI   /**< Relative Lyapunov Indicator. */
+    };
+
+    /**
+     * @brief Returns the name of a mathematical formulation.
+     *
+     * @param formalism Mathematical formulation.
+     * @return Name of the formulation.
+     */
+    static const char *FormalismToString(Formalism formalism) noexcept;
+
+    /**
+     * @brief Returns the name of a chaos indicator.
+     *
+     * @param indicator Chaos indicator type.
+     * @return Name of the indicator.
+     */
+    static const char *IndicatorTypeToString(IndicatorType indicator) noexcept;
+
+    /**
      * @brief Type of a model right-hand-side member function.
      */
     using rhs_t = void (Model::*)(double t, const double *y, double *dydt, void *par) const;
@@ -22,6 +56,26 @@ class Model {
      * @brief Virtual destructor.
      */
     virtual ~Model() = default;
+
+    /**
+     * @brief Returns the selected mathematical formulation.
+     *
+     * @return Current mathematical formulation.
+     */
+    Model::Formalism getFormalism() const noexcept
+    {
+        return formalism_;
+    }
+
+    /**
+     * @brief Returns the selected chaos indicator.
+     *
+     * @return Current chaos indicator type.
+     */
+    Model::IndicatorType getIndicator() const noexcept
+    {
+        return indicator_;
+    }
 
     /**
      * @brief Evaluates the currently selected right-hand side.
@@ -61,9 +115,10 @@ class Model {
     {
         if (n_var != n_var_) {
             n_var_ = n_var;
-            y_ = std::make_unique<double[]>(n_var_);
+            y_     = std::make_unique<double[]>(n_var_);
         }
     }
+
     /**
      * @brief Returns the number of dynamical variables.
      *
@@ -75,11 +130,31 @@ class Model {
     }
 
     /**
+     * @brief Sets the current model time.
+     *
+     * @param t Current time.
+     */
+    void setT(double t) noexcept
+    {
+        t_ = t;
+    }
+
+    /**
+     * @brief Returns the current model time.
+     *
+     * @return Current time.
+     */
+    double getT() const noexcept
+    {
+        return t_;
+    }
+
+    /**
      * @brief Returns the state vector.
      *
      * @return Pointer to the state vector.
      */
-    double* getY() noexcept
+    double *getY() noexcept
     {
         return y_.get();
     }
@@ -89,7 +164,7 @@ class Model {
      *
      * @return Const pointer to the state vector.
      */
-    const double* getY() const noexcept
+    const double *getY() const noexcept
     {
         return y_.get();
     }
@@ -143,9 +218,12 @@ class Model {
      */
     virtual void printState(std::ostream &os, double t, const double *y) const = 0;
 
-   private:
-    rhs_t       f_     = &Model::fun;
-    std::size_t n_var_ = 0;
-    std::string name_;
+   protected:
+    Formalism                 formalism_ = Formalism::NEWTONIAN;
+    IndicatorType             indicator_ = IndicatorType::NONE;
+    double                    t_         = 0.0;
+    rhs_t                     f_         = &Model::fun;
+    std::size_t               n_var_     = 0;
+    std::string               name_;
     std::unique_ptr<double[]> y_;
 };

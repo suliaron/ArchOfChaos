@@ -3,7 +3,7 @@
 #include "astro_types.h"
 #include "model.h"  // Model base class
 
-
+#include <ostream>  // std::ostream
 /**
  * @brief Planar circular restricted three-body problem model.
  *
@@ -16,23 +16,29 @@ class CRTBP2D : public Model {
     /**
      * @brief Parameters of the planar circular restricted three-body problem.
      */
-    struct CRTBP2DParams {
-        double mu; /**< Gravitational mass parameter. */
+    struct Params {
+        double mu; /**< CRTBP mass parameter, mu = m2 / (m1 + m2). */
     };
 
     /**
      * @brief Constructs a planar CRTBP model.
      *
-     * @param mu Gravitational mass parameter.
+     * Initializes the current time, CRTBP mass parameter, mathematical
+     * formulation, and chaos-indicator configuration.
+     *
+     * @param t Initial time.
+     * @param mu CRTBP mass parameter, mu = m2 / (m1 + m2).
+     * @param formalism Mathematical formulation of the equations.
+     * @param indicator Chaos indicator to be computed.
      */
-    explicit CRTBP2D(double mu);
+    CRTBP2D(double t, double mu, Model::Formalism formalism, Model::IndicatorType indicator);
 
     /**
      * @brief Returns the model parameters.
      *
      * @return Pointer to the CRTBP parameters.
      */
-    CRTBP2DParams *getParams() noexcept
+    Params *getParams() noexcept
     {
         return &param_;
     }
@@ -68,7 +74,7 @@ class CRTBP2D : public Model {
      * @param a2 Constant distance between the two primary bodies [AU].
      * @param n Mean motion of the primary bodies [rad/day].
      */
-    void InertialToCRTBP(const astro::State& state, double a2, double n);
+    void InertialToCRTBP(const astro::State &state, double a2, double n);
 
     /**
      * @brief Sets the initial state for a special planar CRTBP configuration.
@@ -91,29 +97,142 @@ class CRTBP2D : public Model {
     void GetInitialCondition(double a, double e);
 
     /**
-     * @brief Evaluates the equations of motion of the planar CRTBP.
+     * @brief Converts the model state to Hamiltonian canonical variables.
      *
-     * @param t Current time.
-     * @param y State vector (x, y, vx, vy).
-     * @param dydt Time derivative of the state vector.
-     * @param par Pointer to a CRTBP2DParams structure.
+     * Converts the normalized rotating CRTBP state from position-velocity
+     * variables
+     *
+     *     y = (x, y, vx, vy)
+     *
+     * to Hamiltonian canonical variables
+     *
+     *     y = (x, y, px, py),
+     *
+     * using
+     *
+     *     px = vx - y,
+     *     py = vy + x.
+     *
+     * The transformation is performed in place on the model state vector.
+     * The position coordinates remain unchanged.
      */
-    void fun(double t, const double *y, double *dydt, void *par) const override;
+    void VelocityToHamiltonian() noexcept;
 
     /**
-     * @brief Evaluates the equations of motion and variational equations
-     *        of the planar CRTBP.
+     * @brief Converts the Hamiltonian state to position-velocity variables.
      *
-     * @param t Current time.
-     * @param y State vector and deviation vector
-     *          (x, y, vx, vy, dx, dy, dvx, dvy).
-     * @param dydt Time derivative of the state and deviation vectors.
-     * @param par Pointer to a CRTBP2DParams structure.
+     * Converts the current normalized CRTBP state from canonical Hamiltonian
+     * variables
+     *
+     *     y = (x, y, px, py)
+     *
+     * to position-velocity variables
+     *
+     *     y_out = (x, y, vx, vy),
+     *
+     * using
+     *
+     *     vx = px + y,
+     *     vy = py - x.
+     *
+     * The internal model state is not modified. The converted state is written
+     * to the output array @p y_out.
+     *
+     * @param y_out Output state vector (x, y, vx, vy).
      */
-    void varfun(double t, const double *y, double *dydt, void *par) const override;
+    void HamiltonianToNewtonian(double *y_out) const noexcept;
 
     void printState(std::ostream &os, double t, const double *y) const override;
 
    private:
-    CRTBP2DParams param_;
+    /**
+     * @brief Evaluates the equations of motion in the position-velocity formulation.
+     *
+     * The state vector is
+     *
+     *     y = (x, y, vx, vy).
+     *
+     * @param t Current time.
+     * @param y State vector.
+     * @param dydt Time derivative of the state vector.
+     * @param par Pointer to model parameters.
+     */
+    void funNewtonian(double t, const double *y, double *dydt, void *par) const;
+
+    /**
+     * @brief Evaluates the equations of motion in Hamiltonian canonical variables.
+     *
+     * The state vector is
+     *
+     *     y = (x, y, px, py).
+     *
+     * The normalized planar CRTBP equations are evaluated using
+     * Omega = 1, GM1 = 1 - mu, and GM2 = mu.
+     *
+     * @param t Current time.
+     * @param y State vector in canonical variables.
+     * @param dydt Time derivative of the state vector.
+     * @param par Pointer to model parameters.
+     */
+    void funHamiltonian(double t, const double *y, double *dydt, void *par) const;
+
+    /**
+     * @brief Evaluates the equations of motion using the selected formalism.
+     *
+     * Dispatches the evaluation to either the Newtonian position-velocity
+     * formulation or the Hamiltonian canonical formulation according to the
+     * currently selected formalism.
+     *
+     * @param t Current time.
+     * @param y State vector.
+     * @param dydt Time derivative of the state vector.
+     * @param par Pointer to model-specific parameters.
+     */
+    void fun(double t, const double *y, double *dydt, void *par) const override;
+
+    /**
+     * @brief Evaluates the variational equations in the position-velocity formulation.
+     *
+     * The state vector contains the orbit and the corresponding deviation vector:
+     *
+     *     y = (x, y, vx, vy, dx, dy, dvx, dvy).
+     *
+     * @param t Current time.
+     * @param y State vector and deviation vector.
+     * @param dydt Time derivative of the state and deviation vectors.
+     * @param par Pointer to model-specific parameters.
+     */
+    void varfunNewtonian(double t, const double *y, double *dydt, void *par) const;
+
+    /**
+     * @brief Evaluates the variational equations in Hamiltonian canonical variables.
+     *
+     * The state vector contains the orbit and the corresponding canonical
+     * deviation vector:
+     *
+     *     y = (x, y, px, py, dx, dy, dpx, dpy).
+     *
+     * @param t Current time.
+     * @param y State vector and deviation vector.
+     * @param dydt Time derivative of the state and deviation vectors.
+     * @param par Pointer to model-specific parameters.
+     */
+    void varfunHamiltonian(double t, const double *y, double *dydt, void *par) const;
+
+    /**
+     * @brief Evaluates the equations of motion and variational equations
+     *        using the selected formalism.
+     *
+     * Dispatches the evaluation to either the Newtonian position-velocity
+     * formulation or the Hamiltonian canonical formulation according to the
+     * currently selected formalism.
+     *
+     * @param t Current time.
+     * @param y State vector including the deviation vector.
+     * @param dydt Time derivative of the state and deviation vectors.
+     * @param par Pointer to model-specific parameters.
+     */
+    void varfun(double t, const double *y, double *dydt, void *par) const override;
+
+    Params param_;
 };
