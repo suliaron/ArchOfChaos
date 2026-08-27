@@ -3,7 +3,7 @@
 #include "math_utils.h"  // astro::torad
 
 #include <algorithm>  // std::remove_if, std::transform
-#include <cmath>      // std::abs
+#include <cmath>      // std::abs, std::sqrt
 #include <cctype>     // std::isspace, std::toupper
 #include <fstream>    // std::ifstream
 #include <iomanip>    // std::setw
@@ -19,7 +19,7 @@ namespace {
      * @param mode Run mode.
      * @return Name of the run mode.
      */
-    const char *RunModeToString(RunMode mode) noexcept
+    const char *runModeToString(RunMode mode) noexcept
     {
         switch (mode) {
             case RunMode::ORBIT:
@@ -34,6 +34,7 @@ namespace {
 
         return "UNKNOWN";
     }
+
 }  // namespace
 
 InitData::InitData(const std::string &file_name)
@@ -47,19 +48,19 @@ InitData::InitData(const std::string &file_name)
     std::string line;
 
     while (std::getline(file, line)) {
-        ParseLine(line);
+        parseLine(line);
     }
 
-    Validate();
+    validate();
 }
 
-void InitData::RemoveSpaces(std::string &text)
+void InitData::removeSpaces(std::string &text)
 {
     text.erase(std::remove_if(text.begin(), text.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                text.end());
 }
 
-RunMode InitData::ParseRunMode(const std::string &text)
+RunMode InitData::parseRunMode(const std::string &text)
 {
     std::string mode(text);
 
@@ -79,7 +80,7 @@ RunMode InitData::ParseRunMode(const std::string &text)
     throw std::runtime_error("Unknown run mode: " + text);
 }
 
-Model::IndicatorType InitData::ParseIndicatorType(const std::string &text)
+Model::IndicatorType InitData::parseIndicatorType(const std::string &text)
 {
     std::string indicator(text);
 
@@ -102,7 +103,7 @@ Model::IndicatorType InitData::ParseIndicatorType(const std::string &text)
     throw std::runtime_error("Unknown indicator type: " + text);
 }
 
-Model::Formalism InitData::ParseFormalism(const std::string &text)
+Model::Formalism InitData::parseFormalism(const std::string &text)
 {
     std::string formalism(text);
 
@@ -120,7 +121,7 @@ Model::Formalism InitData::ParseFormalism(const std::string &text)
     throw std::runtime_error("Unknown mathematical formalism: " + text);
 }
 
-void InitData::ParseLine(const std::string &line)
+void InitData::parseLine(const std::string &line)
 {
     std::string text = line;
 
@@ -132,7 +133,7 @@ void InitData::ParseLine(const std::string &line)
     }
 
     // Remove whitespace.
-    RemoveSpaces(text);
+    removeSpaces(text);
 
     // Ignore empty lines.
     if (text.empty()) {
@@ -159,17 +160,17 @@ void InitData::ParseLine(const std::string &line)
 
     // Parse enumeration values.
     if (key == "mode") {
-        run_mode_ = ParseRunMode(value);
+        run_mode_ = parseRunMode(value);
         return;
     }
 
     if (key == "indicator") {
-        indicator_ = ParseIndicatorType(value);
+        indicator_ = parseIndicatorType(value);
         return;
     }
 
     if (key == "formalism") {
-        formalism_ = ParseFormalism(value);
+        formalism_ = parseFormalism(value);
         return;
     }
 
@@ -216,7 +217,20 @@ void InitData::ParseLine(const std::string &line)
         elements_.Omega = astro::toRad(value_deg);
 
     } else if (key == "tau") {
+        if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+            throw std::runtime_error("Both tau and M are specified. Use only one.");
+        }
         is >> elements_.tau;
+        orbital_phase_input_ = OrbitalPhaseInput::TAU;
+
+    } else if (key == "M") {
+        if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+            throw std::runtime_error("Both tau and M are specified. Use only one.");
+        }
+        double value_deg = 0.0;
+        is >> value_deg;
+        mean_anomaly_        = astro::toRad(value_deg);
+        orbital_phase_input_ = OrbitalPhaseInput::MEAN_ANOMALY;
 
     } else if (key == "a0") {
         is >> a0_;
@@ -264,7 +278,21 @@ void InitData::ParseLine(const std::string &line)
     }
 }
 
-void InitData::Validate() const
+double InitData::calc_tau(double mu_grav, double a) const
+{
+    if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+        return elements_.tau;
+    }
+
+    if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+        const double n = std::sqrt(mu_grav / astro::cube(a));
+        return (t0_ - mean_anomaly_ / n);
+    }
+
+    throw std::runtime_error("Neither tau nor M has been specified.");
+}
+
+void InitData::validate() const
 {
     constexpr double PLANAR_EPS = 1.0e-12;
 
@@ -278,9 +306,12 @@ void InitData::Validate() const
     if (a2_ <= 0.0) {
         throw std::runtime_error("a2 must be greater than zero.");
     }
-    // Integration interval.
-    if (T_ <= t0_) {
-        throw std::runtime_error("T must be greater than t0.");
+    // Physical integration duration.
+    if (T_ <= 0.0) {
+        throw std::runtime_error("Integration duration T must be greater than zero.");
+    }
+    if (orbital_phase_input_ == OrbitalPhaseInput::NONE) {
+        throw std::runtime_error("Either tau or M must be specified.");
     }
 
     switch (run_mode_) {
@@ -346,39 +377,75 @@ void InitData::Validate() const
     }
 }
 
-void InitData::Print(std::ostream &os) const
+const char *InitData::orbitalPhaseInputToString(OrbitalPhaseInput input) noexcept
+{
+    switch (input) {
+        case OrbitalPhaseInput::NONE:
+            return "NONE";
+
+        case OrbitalPhaseInput::TAU:
+            return "TAU";
+
+        case OrbitalPhaseInput::MEAN_ANOMALY:
+            return "MEAN_ANOMALY";
+    }
+
+    return "UNKNOWN";
+}
+
+void InitData::print(std::ostream &os) const
 {
     constexpr int W = 18;
 
     os << "----------------------------------------\n";
     os << "Initialization data\n";
     os << "----------------------------------------\n";
-    os << "run mode      : " << RunModeToString(run_mode_) << '\n';
-    os << "indicator     : " << Model::IndicatorTypeToString(indicator_) << '\n';
-    os << "formalism     : " << Model::FormalismToString(formalism_) << '\n';
+    os << "run mode      : " << runModeToString(run_mode_) << '\n';
+    os << "indicator     : " << Model::indicatorTypeToString(indicator_) << '\n';
+    os << "formalism     : " << Model::formalismToString(formalism_) << '\n';
+    os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
     os << "m1            : " << std::setw(W) << m1_ << " [M_sun]\n";
     os << "m2            : " << std::setw(W) << m2_ << " [M_sun]\n";
     os << "a2            : " << std::setw(W) << a2_ << " [AU]\n";
-    os << "t0            : " << std::setw(W) << t0_ << '\n';
-    os << "T             : " << std::setw(W) << T_ << '\n';
+    os << "t0            : " << std::setw(W) << t0_ << " [day]\n";
+    os << "T             : " << std::setw(W) << T_ << " [day]\n";
 
     if (run_mode_ == RunMode::ORBIT || run_mode_ == RunMode::INDICATOR) {
-        os << "output_dt     : " << std::setw(W) << output_dt_ << '\n';
+        os << "output_dt     : " << std::setw(W) << output_dt_ << " [day]\n";
+
+        // Orbital elements.
         os << "a             : " << std::setw(W) << elements_.a << " [AU]\n";
         os << "e             : " << std::setw(W) << elements_.e << '\n';
         os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
         os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
         os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
-        os << "tau           : " << std::setw(W) << elements_.tau << " [JD]\n";
+
+        if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+            os << "tau           : " << std::setw(W) << elements_.tau << " [day]\n";
+        } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+            os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
+        }
     }
 
     if (run_mode_ == RunMode::GRID) {
-        os << "a0            : " << std::setw(W) << a0_ << '\n';
-        os << "a1            : " << std::setw(W) << a1_ << '\n';
+        // Grid parameters.
+        os << "a0            : " << std::setw(W) << a0_ << " [AU]\n";
+        os << "a1            : " << std::setw(W) << a1_ << " [AU]\n";
         os << "Na            : " << std::setw(W) << Na_ << '\n';
         os << "e0            : " << std::setw(W) << e0_ << '\n';
         os << "e1            : " << std::setw(W) << e1_ << '\n';
         os << "Ne            : " << std::setw(W) << Ne_ << '\n';
+
+        // Fixed orbital elements.
+        os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
+        os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
+        os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
+
+        if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+            os << "tau           : " << std::setw(W) << elements_.tau << '\n';
+        } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+            os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
+        }
     }
 
     if (indicator_ != Model::IndicatorType::NONE) {

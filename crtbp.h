@@ -23,15 +23,20 @@ class CRTBP2D : public Model {
     /**
      * @brief Constructs a planar CRTBP model.
      *
-     * Initializes the current time, CRTBP mass parameter, mathematical
-     * formulation, and chaos-indicator configuration.
+     * Initializes the planar circular restricted three-body problem with the
+     * specified mass parameter, mathematical formalism, and chaos indicator.
      *
-     * @param t Initial time.
-     * @param mu CRTBP mass parameter, mu = m2 / (m1 + m2).
-     * @param formalism Mathematical formulation of the equations.
+     * The internal model time is initialized to zero and represents elapsed
+     * dimensionless CRTBP time.
+     *
+     * @param mu CRTBP mass parameter.
+     * @param formalism Mathematical formulation of the equations of motion.
      * @param indicator Chaos indicator to be computed.
+     *
+     * @throws std::runtime_error If the selected indicator is not implemented
+     *         or is unknown.
      */
-    CRTBP2D(double t, double mu, Model::Formalism formalism, Model::IndicatorType indicator);
+    CRTBP2D(double mu, Model::Formalism formalism, Model::IndicatorType indicator);
 
     /**
      * @brief Returns the model parameters.
@@ -74,7 +79,30 @@ class CRTBP2D : public Model {
      * @param a2 Constant distance between the two primary bodies [AU].
      * @param n Mean motion of the primary bodies [rad/day].
      */
-    void InertialToCRTBP(const astro::State &state, double a2, double n);
+    void inertialToCRTBP(const astro::State &state, double a2, double n);
+
+    /**
+     * @brief Converts a Newtonian CRTBP state to the P1-centered inertial frame.
+     *
+     * Transforms a dimensionless barycentric rotating CRTBP state
+     *
+     *     y = (x, y, vx, vy)
+     *
+     * expressed in position-velocity variables to a heliocentric inertial
+     * Cartesian state relative to the primary body P1.
+     *
+     * The rotating and inertial coordinate axes are assumed to be aligned at
+     * dimensionless time t = 0. The current dimensionless model time is used
+     * as the rotation angle between the two frames.
+     *
+     * @param y Newtonian CRTBP state vector (x, y, vx, vy).
+     * @param a2 Constant distance between the two primary bodies [AU].
+     * @param n Mean motion of the primary bodies [rad/day].
+     *
+     * @return P1-centered inertial Cartesian state with position in AU and
+     *         velocity in AU/day.
+     */
+    astro::State crtbpToInertial(const double *y, double a2, double n) const noexcept;
 
     /**
      * @brief Sets the initial state for a special planar CRTBP configuration.
@@ -94,7 +122,7 @@ class CRTBP2D : public Model {
      * @param a Semimajor axis of the particle orbit in normalized CRTBP units.
      * @param e Eccentricity of the particle orbit.
      */
-    void GetInitialCondition(double a, double e);
+    void getInitialCondition(double a, double e);
 
     /**
      * @brief Converts the model state to Hamiltonian canonical variables.
@@ -116,7 +144,7 @@ class CRTBP2D : public Model {
      * The transformation is performed in place on the model state vector.
      * The position coordinates remain unchanged.
      */
-    void VelocityToHamiltonian() noexcept;
+    void velocityToHamiltonian() noexcept;
 
     /**
      * @brief Converts the Hamiltonian state to position-velocity variables.
@@ -140,7 +168,45 @@ class CRTBP2D : public Model {
      *
      * @param y_out Output state vector (x, y, vx, vy).
      */
-    void HamiltonianToNewtonian(double *y_out) const noexcept;
+    void hamiltonianToNewtonian(double *y_out) const noexcept;
+
+    /**
+     * @brief Converts a physical time interval to dimensionless CRTBP time.
+     *
+     * The dimensionless CRTBP time interval is defined as
+     *
+     *     dt_dimless = n * dt_day,
+     *
+     * where @p n is the mean motion of the two primary bodies.
+     *
+     * @param dtDay Physical time interval [day].
+     * @param n Mean motion of the primary bodies [rad/day].
+     *
+     * @return Time interval in dimensionless CRTBP units.
+     */
+    static double toDimlessTime(double dtDay, double n) noexcept
+    {
+        return n * dtDay;
+    }
+
+    /**
+     * @brief Converts a dimensionless CRTBP time interval to physical time.
+     *
+     * The physical time interval is obtained from
+     *
+     *     dt_day = dt_dimless / n,
+     *
+     * where @p n is the mean motion of the two primary bodies.
+     *
+     * @param dtDimless Time interval in dimensionless CRTBP units.
+     * @param n Mean motion of the primary bodies [rad/day].
+     *
+     * @return Physical time interval [day].
+     */
+    static double toPhysicalTime(double dtDimless, double n) noexcept
+    {
+        return dtDimless / n;
+    }
 
     void printState(std::ostream &os, double t, const double *y) const override;
 
@@ -202,7 +268,7 @@ class CRTBP2D : public Model {
      * @param dydt Time derivative of the state and deviation vectors.
      * @param par Pointer to model-specific parameters.
      */
-    void varfunNewtonian(double t, const double *y, double *dydt, void *par) const;
+    void varFunNewtonian(double t, const double *y, double *dydt, void *par) const;
 
     /**
      * @brief Evaluates the variational equations in Hamiltonian canonical variables.
@@ -217,7 +283,7 @@ class CRTBP2D : public Model {
      * @param dydt Time derivative of the state and deviation vectors.
      * @param par Pointer to model-specific parameters.
      */
-    void varfunHamiltonian(double t, const double *y, double *dydt, void *par) const;
+    void varFunHamiltonian(double t, const double *y, double *dydt, void *par) const;
 
     /**
      * @brief Evaluates the equations of motion and variational equations
@@ -232,7 +298,7 @@ class CRTBP2D : public Model {
      * @param dydt Time derivative of the state and deviation vectors.
      * @param par Pointer to model-specific parameters.
      */
-    void varfun(double t, const double *y, double *dydt, void *par) const override;
+    void varFun(double t, const double *y, double *dydt, void *par) const override;
 
     Params param_;
 };

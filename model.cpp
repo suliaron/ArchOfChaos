@@ -1,6 +1,6 @@
 #include "model.h"
 
-const char *Model::FormalismToString(Formalism formalism) noexcept
+const char *Model::formalismToString(Formalism formalism) noexcept
 {
     switch (formalism) {
         case Formalism::NEWTONIAN:
@@ -13,7 +13,7 @@ const char *Model::FormalismToString(Formalism formalism) noexcept
     return "UNKNOWN";
 }
 
-const char *Model::IndicatorTypeToString(IndicatorType indicator) noexcept
+const char *Model::indicatorTypeToString(IndicatorType indicator) noexcept
 {
     switch (indicator) {
         case IndicatorType::NONE:

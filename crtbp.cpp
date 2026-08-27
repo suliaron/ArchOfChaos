@@ -6,11 +6,11 @@
 #include <ostream>    // std::ostream
 #include <stdexcept>  // std::runtime_error
 
-CRTBP2D::CRTBP2D(double t, double mu, Model::Formalism formalism, Model::IndicatorType indicator)
+CRTBP2D::CRTBP2D(double mu, Model::Formalism formalism, Model::IndicatorType indicator)
 {
     setName("Planar CRTBP");
 
-    t_         = t;
+    t_         = 0.0;  /// Elapsed dimensionless CRTBP time
     param_.mu  = mu;
     formalism_ = formalism;
     indicator_ = indicator;
@@ -26,7 +26,7 @@ CRTBP2D::CRTBP2D(double t, double mu, Model::Formalism formalism, Model::Indicat
         case Model::IndicatorType::LCI:
             // Equations of motion and variational equations.
             setNVar(8);
-            setFunction(&Model::varfun);
+            setFunction(&Model::varFun);
             break;
 
         case Model::IndicatorType::RLI:
@@ -37,7 +37,7 @@ CRTBP2D::CRTBP2D(double t, double mu, Model::Formalism formalism, Model::Indicat
     }
 }
 
-void CRTBP2D::InertialToCRTBP(const astro::State &state, double a2, double n)
+void CRTBP2D::inertialToCRTBP(const astro::State &state, double a2, double n)
 {
     const double mu = param_.mu;
     double      *y  = getY();
@@ -56,7 +56,43 @@ void CRTBP2D::InertialToCRTBP(const astro::State &state, double a2, double n)
     y[3] = etaDot / (n * a2) - xi / a2;
 }
 
-void CRTBP2D::GetInitialCondition(double a, double e)
+astro::State CRTBP2D::crtbpToInertial(const double *y, double a2, double n) const noexcept
+{
+    const double mu = param_.mu;
+
+    const double x  = y[0];
+    const double yr = y[1];
+    const double vx = y[2];
+    const double vy = y[3];
+
+    // Position relative to P1 in the rotating frame.
+    const double xP1 = x + mu;
+    const double yP1 = yr;
+
+    // Inertial velocity relative to P1, expressed in rotating coordinates.
+    const double vxInert = vx - yP1;
+    const double vyInert = vy + xP1;
+
+    // Rotation angle between the rotating and inertial frames.
+    const double c = std::cos(t_);
+    const double s = std::sin(t_);
+
+    astro::State state{};
+
+    // P1-centered inertial position [AU].
+    state.r.x = a2 * (c * xP1 - s * yP1);
+    state.r.y = a2 * (s * xP1 + c * yP1);
+    state.r.z = 0.0;
+
+    // P1-centered inertial velocity [AU/day].
+    state.v.x = n * a2 * (c * vxInert - s * vyInert);
+    state.v.y = n * a2 * (s * vxInert + c * vyInert);
+    state.v.z = 0.0;
+
+    return state;
+}
+
+void CRTBP2D::getInitialCondition(double a, double e)
 {
     const double mu = param_.mu;
     double      *y  = getY();
@@ -70,7 +106,7 @@ void CRTBP2D::GetInitialCondition(double a, double e)
     y[3] = std::sqrt((1.0 - mu) / a * (1.0 + e) / (1.0 - e)) - a * (1.0 - e);
 }
 
-void CRTBP2D::VelocityToHamiltonian() noexcept
+void CRTBP2D::velocityToHamiltonian() noexcept
 {
     double *y = getY();
 
@@ -81,7 +117,7 @@ void CRTBP2D::VelocityToHamiltonian() noexcept
     y[3] = py;
 }
 
-void CRTBP2D::HamiltonianToNewtonian(double *y_out) const noexcept
+void CRTBP2D::hamiltonianToNewtonian(double *y_out) const noexcept
 {
     const double *y = getY();
 
@@ -107,19 +143,19 @@ void CRTBP2D::fun(double t, const double *y, double *dydt, void *par) const
     }
 }
 
-void CRTBP2D::varfun(double t, const double* y, double* dydt, void* par) const
+void CRTBP2D::varFun(double t, const double *y, double *dydt, void *par) const
 {
     switch (formalism_) {
-    case Formalism::NEWTONIAN:
-        varfunNewtonian(t, y, dydt, par);
-        break;
+        case Formalism::NEWTONIAN:
+            varFunNewtonian(t, y, dydt, par);
+            break;
 
-    case Formalism::HAMILTONIAN:
-        varfunHamiltonian(t, y, dydt, par);
-        break;
+        case Formalism::HAMILTONIAN:
+            varFunHamiltonian(t, y, dydt, par);
+            break;
 
-    default:
-        throw std::runtime_error("Unknown CRTBP formalism.");
+        default:
+            throw std::runtime_error("Unknown CRTBP formalism.");
     }
 }
 
@@ -161,7 +197,7 @@ void CRTBP2D::funHamiltonian(double t, const double *y, double *dydt, void *par)
     dydt[3] = -y[2] - (1.0 - mu) * y[1] * r1_3 - mu * y[1] * r2_3;
 }
 
-void CRTBP2D::varfunNewtonian(double t, const double *y, double *dydt, void *par) const
+void CRTBP2D::varFunNewtonian(double t, const double *y, double *dydt, void *par) const
 {
     (void)t;
 
@@ -197,7 +233,7 @@ void CRTBP2D::varfunNewtonian(double t, const double *y, double *dydt, void *par
     dydt[7] = O_xy * y[4] + O_yy * y[5] - 2.0 * y[6];
 }
 
-void CRTBP2D::varfunHamiltonian(double t, const double *y, double *dydt, void *par) const
+void CRTBP2D::varFunHamiltonian(double t, const double *y, double *dydt, void *par) const
 {
     (void)t;
     (void)par;

@@ -37,7 +37,7 @@ class Model {
      * @param formalism Mathematical formulation.
      * @return Name of the formulation.
      */
-    static const char *FormalismToString(Formalism formalism) noexcept;
+    static const char *formalismToString(Formalism formalism) noexcept;
 
     /**
      * @brief Returns the name of a chaos indicator.
@@ -45,7 +45,7 @@ class Model {
      * @param indicator Chaos indicator type.
      * @return Name of the indicator.
      */
-    static const char *IndicatorTypeToString(IndicatorType indicator) noexcept;
+    static const char *indicatorTypeToString(IndicatorType indicator) noexcept;
 
     /**
      * @brief Type of a model right-hand-side member function.
@@ -207,7 +207,7 @@ class Model {
      * @param dydt Time derivative of the state and deviation vectors.
      * @param par Pointer to model-specific parameters.
      */
-    virtual void varfun(double t, const double *y, double *dydt, void *par) const = 0;
+    virtual void varFun(double t, const double *y, double *dydt, void *par) const = 0;
 
     /**
      * @brief Prints the current state of the model.

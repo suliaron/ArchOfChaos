@@ -24,6 +24,19 @@ enum class RunMode {
  * Reads the initialization parameters from an input file, converts textual
  * values to the corresponding internal types, validates the resulting data,
  * and provides read-only access to the initialized parameters.
+ *
+ * Physical quantities in the input file use the following units:
+ *
+ * - masses: solar mass,
+ * - distances and semimajor axes: AU,
+ * - physical times: day,
+ * - angular orbital elements: degree in the input file and radian internally.
+ *
+ * The initial epoch @c t0, integration duration @c T, output interval
+ * @c output_dt, and pericenter passage time @c tau are specified in days.
+ *
+ * The CRTBP integration itself uses normalized dimensionless time; conversion
+ * from physical time to normalized CRTBP time is performed outside this class.
  */
 class InitData {
    public:
@@ -44,7 +57,7 @@ class InitData {
      *
      * @param os Output stream. Defaults to std::cout.
      */
-    void Print(std::ostream &os = std::cout) const;
+    void print(std::ostream &os = std::cout) const;
 
     /** @return Selected run mode. */
     RunMode getRunMode() const noexcept
@@ -82,19 +95,31 @@ class InitData {
         return a2_;
     }
 
-    /** @return Initial integration time. */
+    /**
+     * @brief Returns the initial physical epoch.
+     *
+     * @return Initial epoch [day].
+     */
     double getT0() const noexcept
     {
         return t0_;
     }
 
-    /** @return Final integration time. */
+    /**
+     * @brief Returns the physical integration duration.
+     *
+     * @return Integration duration [day].
+     */
     double getT() const noexcept
     {
         return T_;
     }
 
-    /** @return Output time interval. */
+    /**
+     * @brief Returns the physical output time interval.
+     *
+     * @return Output time interval [day].
+     */
     double getOutputDt() const noexcept
     {
         return output_dt_;
@@ -153,7 +178,49 @@ class InitData {
         return dy_;
     }
 
+    /**
+     * @brief Calculates the pericenter passage time.
+     *
+     * If the pericenter passage time was specified directly in the input file,
+     * the stored value is returned. If the mean anomaly was specified instead,
+     * the pericenter passage time is calculated from
+     *
+     *     tau = t0 - M / n,
+     *
+     * where
+     *
+     *     n = sqrt(mu_grav / a^3).
+     *
+     * The gravitational parameter is expressed in AU^3/day^2, the semimajor
+     * axis in AU, and the resulting pericenter passage time in days.
+     *
+     * @param mu_grav Gravitational parameter of the Keplerian orbit [AU^3/day^2].
+     * @param a Semimajor axis [AU].
+     *
+     * @return Pericenter passage time [day].
+     *
+     * @throws std::runtime_error If neither tau nor M was specified.
+     */
+    double calc_tau(double mu_grav, double a) const;
+
    private:
+    /**
+     * @brief Specifies how the initial orbital phase was provided.
+     */
+    enum class OrbitalPhaseInput {
+        NONE,        /**< No orbital phase has been specified. */
+        TAU,         /**< Pericenter passage time was specified. */
+        MEAN_ANOMALY /**< Mean anomaly was specified. */
+    };
+
+    /**
+     * @brief Returns the name of an orbital-phase input type.
+     *
+     * @param input Orbital-phase input type.
+     * @return Name of the orbital-phase input type.
+     */
+    static const char *orbitalPhaseInputToString(OrbitalPhaseInput input) noexcept;
+
     /**
      * @brief Parses a single line of the initialization file.
      *
@@ -161,7 +228,7 @@ class InitData {
      *
      * @param line Input line.
      */
-    void ParseLine(const std::string &line);
+    void parseLine(const std::string &line);
 
     /**
      * @brief Validates the initialization data.
@@ -169,14 +236,14 @@ class InitData {
      * @throws std::runtime_error If the stored input parameters are
      *         inconsistent or invalid.
      */
-    void Validate() const;
+    void validate() const;
 
     /**
      * @brief Removes whitespace characters from a string.
      *
      * @param text String to modify.
      */
-    static void RemoveSpaces(std::string &text);
+    static void removeSpaces(std::string &text);
 
     /**
      * @brief Converts text to a run mode.
@@ -186,7 +253,7 @@ class InitData {
      *
      * @throws std::runtime_error If the value is unknown.
      */
-    static RunMode ParseRunMode(const std::string &text);
+    static RunMode parseRunMode(const std::string &text);
 
     /**
      * @brief Converts text to an indicator type.
@@ -196,7 +263,7 @@ class InitData {
      *
      * @throws std::runtime_error If the value is unknown.
      */
-    static Model::IndicatorType ParseIndicatorType(const std::string &text);
+    static Model::IndicatorType parseIndicatorType(const std::string &text);
 
     /**
      * @brief Converts text to a CRTBP mathematical formulation.
@@ -206,7 +273,7 @@ class InitData {
      *
      * @throws std::runtime_error If the value is unknown.
      */
-    static Model::Formalism ParseFormalism(const std::string &text);
+    static Model::Formalism parseFormalism(const std::string &text);
 
     RunMode              run_mode_  = RunMode::ORBIT;
     Model::Formalism     formalism_ = Model::Formalism::NEWTONIAN;
@@ -216,11 +283,18 @@ class InitData {
     double m2_ = 0.0;
     double a2_ = 0.0;
 
-    double t0_        = 0.0;
-    double T_         = 0.0;
+    /// Initial physical epoch [day].
+    double t0_ = 0.0;
+    /// Physical integration duration [day].
+    double T_ = 0.0;
+    /// Physical output time interval [day].
     double output_dt_ = 0.0;
 
+    /// Specifies how the initial orbital phase was provided.
+    OrbitalPhaseInput      orbital_phase_input_ = OrbitalPhaseInput::NONE;
     astro::OrbitalElements elements_{};
+    /// Initial mean anomaly [rad].
+    double mean_anomaly_ = 0.0;
 
     double        a0_ = 0.0;
     double        a1_ = 0.0;
