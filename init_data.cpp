@@ -12,7 +12,6 @@
 #include <string>     // std::string
 
 namespace {
-
     /**
      * @brief Returns the name of a run mode.
      *
@@ -40,13 +39,11 @@ namespace {
 InitData::InitData(const std::string &file_name)
 {
     std::ifstream file(file_name);
-
     if (!file) {
         throw std::runtime_error("Cannot open initialization file: " + file_name);
     }
 
     std::string line;
-
     while (std::getline(file, line)) {
         parseLine(line);
     }
@@ -189,40 +186,47 @@ void InitData::parseLine(const std::string &line)
     } else if (key == "t0") {
         is >> t0_;
 
-    } else if (key == "T") {
-        is >> T_;
+    }
+    // else if (key == "T") {
+    //     is >> T_;
+    // }
 
+    else if (key == "T") {
+        if (integration_duration_input_ == IntegrationDurationInput::ORBITAL_PERIODS) {
+            throw std::runtime_error("T and nPeriods cannot be specified simultaneously.");
+        }
+        is >> T_;
+        integration_duration_input_ = IntegrationDurationInput::PHYSICAL_TIME;
+    } else if (key == "nPeriods") {
+        if (integration_duration_input_ == IntegrationDurationInput::PHYSICAL_TIME) {
+            throw std::runtime_error("T and nPeriods cannot be specified simultaneously.");
+        }
+        is >> n_periods_;
+        integration_duration_input_ = IntegrationDurationInput::ORBITAL_PERIODS;
     } else if (key == "output_dt") {
         is >> output_dt_;
-
     } else if (key == "a") {
         is >> elements_.a;
-
     } else if (key == "e") {
         is >> elements_.e;
-
     } else if (key == "i") {
         double value_deg = 0.0;
         is >> value_deg;
         elements_.i = astro::toRad(value_deg);
-
     } else if (key == "omega") {
         double value_deg = 0.0;
         is >> value_deg;
         elements_.omega = astro::toRad(value_deg);
-
     } else if (key == "Omega") {
         double value_deg = 0.0;
         is >> value_deg;
         elements_.Omega = astro::toRad(value_deg);
-
     } else if (key == "tau") {
         if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
             throw std::runtime_error("Both tau and M are specified. Use only one.");
         }
         is >> elements_.tau;
         orbital_phase_input_ = OrbitalPhaseInput::TAU;
-
     } else if (key == "M") {
         if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
             throw std::runtime_error("Both tau and M are specified. Use only one.");
@@ -231,37 +235,30 @@ void InitData::parseLine(const std::string &line)
         is >> value_deg;
         mean_anomaly_        = astro::toRad(value_deg);
         orbital_phase_input_ = OrbitalPhaseInput::MEAN_ANOMALY;
-
     } else if (key == "a0") {
         is >> a0_;
-
     } else if (key == "a1") {
         is >> a1_;
-
     } else if (key == "Na") {
         is >> Na_;
-
     } else if (key == "e0") {
         is >> e0_;
-
     } else if (key == "e1") {
         is >> e1_;
-
     } else if (key == "Ne") {
         is >> Ne_;
-
     } else if (key == "dy1") {
         is >> dy_[0];
-
     } else if (key == "dy2") {
         is >> dy_[1];
-
     } else if (key == "dy3") {
         is >> dy_[2];
-
     } else if (key == "dy4") {
         is >> dy_[3];
-
+    } else if (key == "relTol") {
+        is >> rel_tol_;
+    } else if (key == "absTol") {
+        is >> abs_tol_;
     } else {
         throw std::runtime_error("Unknown keyword: " + key);
     }
@@ -292,6 +289,25 @@ double InitData::calc_tau(double mu_grav, double a) const
     throw std::runtime_error("Neither tau nor M has been specified.");
 }
 
+double InitData::calcIntegrationDuration(double mu_13, double a) const
+{
+    switch (integration_duration_input_) {
+        case IntegrationDurationInput::PHYSICAL_TIME:
+            return T_;
+
+        case IntegrationDurationInput::ORBITAL_PERIODS: {
+            const double period = 2.0 * astro::pi * std::sqrt(astro::cube(a) / mu_13);
+
+            return n_periods_ * period;
+        }
+
+        case IntegrationDurationInput::NONE:
+            throw std::runtime_error("Integration duration has not been specified.");
+    }
+
+    throw std::runtime_error("Unknown integration-duration input method.");
+}
+
 void InitData::validate() const
 {
     constexpr double PLANAR_EPS = 1.0e-12;
@@ -306,12 +322,32 @@ void InitData::validate() const
     if (a2_ <= 0.0) {
         throw std::runtime_error("a2 must be greater than zero.");
     }
-    // Physical integration duration.
-    if (T_ <= 0.0) {
-        throw std::runtime_error("Integration duration T must be greater than zero.");
+    // Integration duration.
+    switch (integration_duration_input_) {
+        case IntegrationDurationInput::PHYSICAL_TIME:
+            if (T_ <= 0.0) {
+                throw std::runtime_error("Integration duration T must be greater than zero.");
+            }
+            break;
+
+        case IntegrationDurationInput::ORBITAL_PERIODS:
+            if (n_periods_ <= 0.0) {
+                throw std::runtime_error("nPeriods must be greater than zero.");
+            }
+            break;
+
+        case IntegrationDurationInput::NONE:
+            throw std::runtime_error("Either T or nPeriods must be specified.");
     }
     if (orbital_phase_input_ == OrbitalPhaseInput::NONE) {
         throw std::runtime_error("Either tau or M must be specified.");
+    }
+    if (rel_tol_ <= 0.0) {
+        throw std::runtime_error("Relative tolerance relTol must be greater than zero.");
+    }
+
+    if (abs_tol_ <= 0.0) {
+        throw std::runtime_error("Absolute tolerance absTol must be greater than zero.");
     }
 
     switch (run_mode_) {
@@ -393,6 +429,22 @@ const char *InitData::orbitalPhaseInputToString(OrbitalPhaseInput input) noexcep
     return "UNKNOWN";
 }
 
+const char *InitData::integrationDurationInputToString(IntegrationDurationInput input) noexcept
+{
+    switch (input) {
+        case IntegrationDurationInput::NONE:
+            return "NONE";
+
+        case IntegrationDurationInput::PHYSICAL_TIME:
+            return "PHYSICAL_TIME";
+
+        case IntegrationDurationInput::ORBITAL_PERIODS:
+            return "ORBITAL_PERIODS";
+    }
+
+    return "UNKNOWN";
+}
+
 void InitData::print(std::ostream &os) const
 {
     constexpr int W = 18;
@@ -404,12 +456,26 @@ void InitData::print(std::ostream &os) const
     os << "indicator     : " << Model::indicatorTypeToString(indicator_) << '\n';
     os << "formalism     : " << Model::formalismToString(formalism_) << '\n';
     os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
+    os << "relTol        : " << std::setw(W) << rel_tol_ << '\n';
+    os << "absTol        : " << std::setw(W) << abs_tol_ << '\n';
     os << "m1            : " << std::setw(W) << m1_ << " [M_sun]\n";
     os << "m2            : " << std::setw(W) << m2_ << " [M_sun]\n";
     os << "a2            : " << std::setw(W) << a2_ << " [AU]\n";
     os << "t0            : " << std::setw(W) << t0_ << " [day]\n";
-    os << "T             : " << std::setw(W) << T_ << " [day]\n";
+    os << "duration input: " << integrationDurationInputToString(integration_duration_input_) << '\n';
 
+    switch (integration_duration_input_) {
+        case IntegrationDurationInput::PHYSICAL_TIME:
+            os << "T             : " << std::setw(W) << T_ << " [day]\n";
+            break;
+
+        case IntegrationDurationInput::ORBITAL_PERIODS:
+            os << "nPeriods      : " << std::setw(W) << n_periods_ << '\n';
+            break;
+
+        case IntegrationDurationInput::NONE:
+            break;
+    }
     if (run_mode_ == RunMode::ORBIT || run_mode_ == RunMode::INDICATOR) {
         os << "output_dt     : " << std::setw(W) << output_dt_ << " [day]\n";
 

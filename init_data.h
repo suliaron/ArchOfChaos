@@ -59,6 +59,27 @@ class InitData {
      */
     void print(std::ostream &os = std::cout) const;
 
+    /**
+     * @brief Checks whether the integration duration is specified in days.
+     *
+     * @return True if T is used to specify the integration duration.
+     */
+    bool usesPhysicalIntegrationTime() const noexcept
+    {
+        return integration_duration_input_ == IntegrationDurationInput::PHYSICAL_TIME;
+    }
+
+    /**
+     * @brief Checks whether the integration duration is specified by
+     *        the number of P3 orbital periods.
+     *
+     * @return True if nPeriods is used to specify the integration duration.
+     */
+    bool usesOrbitalPeriods() const noexcept
+    {
+        return integration_duration_input_ == IntegrationDurationInput::ORBITAL_PERIODS;
+    }
+
     /** @return Selected run mode. */
     RunMode getRunMode() const noexcept
     {
@@ -113,6 +134,16 @@ class InitData {
     double getT() const noexcept
     {
         return T_;
+    }
+
+    /**
+     * @brief Returns the requested number of initial P3 orbital periods.
+     *
+     * @return Number of orbital periods.
+     */
+    double getNPeriods() const noexcept
+    {
+        return n_periods_;
     }
 
     /**
@@ -179,6 +210,26 @@ class InitData {
     }
 
     /**
+     * @brief Returns the relative integration tolerance.
+     *
+     * @return Relative tolerance of the adaptive numerical integrator.
+     */
+    double getRelTol() const noexcept
+    {
+        return rel_tol_;
+    }
+
+    /**
+     * @brief Returns the absolute integration tolerance.
+     *
+     * @return Absolute tolerance of the adaptive numerical integrator.
+     */
+    double getAbsTol() const noexcept
+    {
+        return abs_tol_;
+    }
+
+    /**
      * @brief Calculates the pericenter passage time.
      *
      * If the pericenter passage time was specified directly in the input file,
@@ -203,6 +254,37 @@ class InitData {
      */
     double calc_tau(double mu_grav, double a) const;
 
+    /**
+     * @brief Calculates the physical integration duration for a given orbit.
+     *
+     * If the integration duration is specified directly by T, the stored
+     * physical duration is returned.
+     *
+     * If the integration duration is specified by nPeriods, the Keplerian
+     * orbital period of P3 is calculated from the semimajor axis @p a supplied
+     * for the current orbit:
+     *
+     *     P3(a) = 2*pi*sqrt(a^3 / mu_13).
+     *
+     * The integration duration is then set to
+     *
+     *     T(a) = nPeriods * P3(a).
+     *
+     * Thus, in GRID mode, every grid point is integrated for the same number
+     * of its own Keplerian orbital periods, with the period recalculated from
+     * the current semimajor-axis value of that grid point.
+     *
+     * @param mu_13 Gravitational parameter of the P1-P3 two-body problem
+     *              [AU^3/day^2].
+     * @param a Semimajor axis of the current P3 orbit [AU].
+     *
+     * @return Physical integration duration for the current orbit [day].
+     *
+     * @throws std::runtime_error If the integration-duration input method
+     *         has not been specified.
+     */
+    double calcIntegrationDuration(double mu_13, double a) const;
+
    private:
     /**
      * @brief Specifies how the initial orbital phase was provided.
@@ -212,7 +294,18 @@ class InitData {
         TAU,         /**< Pericenter passage time was specified. */
         MEAN_ANOMALY /**< Mean anomaly was specified. */
     };
-
+    /**
+     * @brief Specifies how the integration duration is defined.
+     *
+     * The integration duration can be specified either directly as a
+     * physical time interval in days or as a number of initial Keplerian
+     * orbital periods of the massless body P3.
+     */
+    enum class IntegrationDurationInput {
+        NONE,           /**< Integration duration has not been specified. */
+        PHYSICAL_TIME,  /**< Integration duration is specified by T [day]. */
+        ORBITAL_PERIODS /**< Integration duration is specified by nPeriods. */
+    };
     /**
      * @brief Returns the name of an orbital-phase input type.
      *
@@ -220,6 +313,14 @@ class InitData {
      * @return Name of the orbital-phase input type.
      */
     static const char *orbitalPhaseInputToString(OrbitalPhaseInput input) noexcept;
+
+    /**
+     * @brief Returns the name of an integration-duration input method.
+     *
+     * @param input Integration-duration input method.
+     * @return Name of the integration-duration input method.
+     */
+    static const char *integrationDurationInputToString(IntegrationDurationInput input) noexcept;
 
     /**
      * @brief Parses a single line of the initialization file.
@@ -287,9 +388,13 @@ class InitData {
     double t0_ = 0.0;
     /// Physical integration duration [day].
     double T_ = 0.0;
+    /// Number of initial Keplerian orbital periods of P3.
+    double n_periods_ = 0.0;
     /// Physical output time interval [day].
     double output_dt_ = 0.0;
 
+    /// Method used to specify the integration duration.
+    IntegrationDurationInput integration_duration_input_ = IntegrationDurationInput::NONE;
     /// Specifies how the initial orbital phase was provided.
     OrbitalPhaseInput      orbital_phase_input_ = OrbitalPhaseInput::NONE;
     astro::OrbitalElements elements_{};
@@ -305,4 +410,10 @@ class InitData {
     std::uint32_t Ne_ = 0;
 
     double dy_[4] = {1.0, 0.0, 0.0, 0.0};
+
+    /// Relative tolerance of the numerical integrator.
+    double rel_tol_ = 1.0e-6;
+
+    /// Absolute tolerance of the numerical integrator.
+    double abs_tol_ = 1.0e-10;
 };
