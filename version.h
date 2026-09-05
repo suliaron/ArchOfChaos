@@ -29,7 +29,7 @@ namespace program {
     /**
      * @brief Minor version number.
      */
-    inline constexpr int versionMinor = 5;
+    inline constexpr int versionMinor = 6;
 
     /**
      * @brief Patch version number.
@@ -41,7 +41,7 @@ namespace program {
      *
      * The version follows the MAJOR.MINOR.PATCH convention.
      */
-    inline constexpr char version[] = "1.5.0";
+    inline constexpr char version[] = "1.6.0";
 
     /**
      * @brief Program author.

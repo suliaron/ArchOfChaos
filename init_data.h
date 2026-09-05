@@ -1,13 +1,16 @@
 #pragma once
 
 #include "astro_types.h"  // astro::OrbitalElements
+#include "grid.h"         // GridAxis, OrbitalElement, and grid-related declarations.
 #include "model.h"        // Model::Formalism, Model::IndicatorType
 
 #include <cstddef>   // std::size_t
 #include <cstdint>   // std::uint32_t
 #include <iostream>  // std::cout
 #include <ostream>   // std::ostream
+#include <set>       // std::set container for explicitly specified fixed orbital elements.
 #include <string>    // std::string
+#include <vector>    // std::vector container for storing grid-axis definitions.
 
 /**
  * @brief Specifies the overall computation mode.
@@ -162,6 +165,16 @@ class InitData {
         return elements_;
     }
 
+    /**
+     * @brief Returns the fixed mean anomaly.
+     *
+     * @return Mean anomaly [rad].
+     */
+    double getMeanAnomaly() const noexcept
+    {
+        return mean_anomaly_;
+    }
+
     /** @return Minimum semimajor axis of the grid. */
     double getA0() const noexcept
     {
@@ -210,6 +223,28 @@ class InitData {
     }
 
     /**
+     * @brief Checks whether the fixed orbital phase is specified
+     *        by the time of pericenter passage.
+     *
+     * @return True if tau is used as the fixed orbital-phase input.
+     */
+    bool usesFixedTau() const noexcept
+    {
+        return orbital_phase_input_ == OrbitalPhaseInput::TAU;
+    }
+
+    /**
+     * @brief Checks whether the fixed orbital phase is specified
+     *        by the mean anomaly.
+     *
+     * @return True if M is used as the fixed orbital-phase input.
+     */
+    bool usesFixedMeanAnomaly() const noexcept
+    {
+        return orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY;
+    }
+
+    /**
      * @brief Returns the relative integration tolerance.
      *
      * @return Relative tolerance of the adaptive numerical integrator.
@@ -227,6 +262,16 @@ class InitData {
     double getAbsTol() const noexcept
     {
         return abs_tol_;
+    }
+
+    /**
+     * @brief Returns the orbital-element grid definitions.
+     *
+     * @return Constant reference to the grid-axis definitions.
+     */
+    const std::vector<GridAxis> &getGridAxes() const noexcept
+    {
+        return grid_axes_;
     }
 
     /**
@@ -340,11 +385,65 @@ class InitData {
     void validate() const;
 
     /**
+     * @brief Checks whether an orbital element is controlled by a grid axis.
+     *
+     * @param element Orbital element to search for.
+     *
+     * @return True if the orbital element is present among the grid axes,
+     *         false otherwise.
+     */
+    bool hasGridAxis(OrbitalElement element) const noexcept;
+
+    /**
+     * @brief Checks whether an orbital element was explicitly specified
+     *        as a fixed input value.
+     *
+     * @param element Orbital element to search for.
+     *
+     * @return True if the orbital element was specified as a fixed input
+     *         value, false otherwise.
+     */
+    bool hasFixedOrbitalElement(OrbitalElement element) const noexcept;
+
+    /**
+     * @brief Registers an orbital element as an explicitly specified
+     *        fixed input value.
+     *
+     * @param element Orbital element to register.
+     *
+     * @throws std::runtime_error If the orbital element has already been
+     *         specified as a fixed input value.
+     */
+    void registerFixedOrbitalElement(OrbitalElement element);
+
+    /**
+     * @brief Validates how an orbital element is specified in GRID mode.
+     *
+     * The orbital element must be specified exactly once: either as a fixed
+     * input value or as a grid axis, but not both.
+     *
+     * @param element Orbital element to validate.
+     *
+     * @throws std::runtime_error If the orbital element is specified both
+     *         as a fixed value and as a grid axis, or by neither method.
+     */
+    void validateOrbitalElementSource(OrbitalElement element) const;
+
+    /**
      * @brief Removes whitespace characters from a string.
      *
      * @param text String to modify.
      */
     static void removeSpaces(std::string &text);
+
+    /**
+     * @brief Removes leading and trailing whitespace from a string.
+     *
+     * Internal whitespace characters are preserved.
+     *
+     * @param text String to modify.
+     */
+    static void Trim(std::string &text);
 
     /**
      * @brief Converts text to a run mode.
@@ -398,8 +497,21 @@ class InitData {
     /// Specifies how the initial orbital phase was provided.
     OrbitalPhaseInput      orbital_phase_input_ = OrbitalPhaseInput::NONE;
     astro::OrbitalElements elements_{};
+    /**
+     * @brief Orbital elements explicitly specified as fixed input values.
+     *
+     * An orbital element stored here was explicitly provided in the input
+     * file rather than obtained from a grid axis.
+     */
+    std::set<OrbitalElement> fixed_elements_;
+
     /// Initial mean anomaly [rad].
     double mean_anomaly_ = 0.0;
+
+    /**
+     * @brief Definitions of the orbital-element grid axes.
+     */
+    std::vector<GridAxis> grid_axes_;
 
     double        a0_ = 0.0;
     double        a1_ = 0.0;

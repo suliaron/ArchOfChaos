@@ -23,6 +23,7 @@
 #include <sstream>    /**< String stream classes (std::istringstream, std::ostringstream). */
 #include <stdexcept>  /**< Standard exception classes (std::invalid_argument, std::runtime_error). */
 #include <string>     /**< std::string class. */
+#include <vector>     // std::vector container.
 
 namespace fs = std::filesystem;
 
@@ -204,6 +205,239 @@ namespace ode_integrator {
 namespace {
 
     /**
+     * @brief Converts a floating-point value to a compact string for use
+     *        in automatically generated output file names.
+     *
+     * Decimal points, minus signs, and scientific notation are preserved.
+     *
+     * @param value Numerical value to convert.
+     *
+     * @return Compact textual representation of @p value.
+     */
+    std::string filenameNumber(double value)
+    {
+        std::ostringstream os;
+        os << std::setprecision(8) << std::defaultfloat << value;
+        return os.str();
+    }
+
+    /**
+     * @brief Builds an automatic output file name for ORBIT or INDICATOR mode.
+     *
+     * The file name contains the computation type, mathematical formalism,
+     * integration-duration mode and value, output time interval, P1-P2
+     * separation, and all fixed orbital elements.
+     *
+     * For ORBIT mode, the file name starts with "ORBIT".
+     * For INDICATOR mode, it starts with the selected chaos-indicator name.
+     *
+     * Angular orbital elements are written in degrees.
+     *
+     * Examples:
+     *
+     *     ORBIT_NEWTONIAN_nP-100_dt-10_a2-5.2026_
+     *     a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
+     *
+     *     LCI_NEWTONIAN_nP-100_dt-10_a2-5.2026_
+     *     a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
+     *
+     * @param init Initialization data.
+     *
+     * @return Automatically generated output file name.
+     *
+     * @throws std::runtime_error If the function is called outside ORBIT or
+     *         INDICATOR mode, or if the integration-duration or orbital-phase
+     *         input mode is unknown.
+     */
+    std::string buildTimeSeriesOutputFileName(const InitData &init)
+    {
+        if (init.getRunMode() != RunMode::ORBIT && init.getRunMode() != RunMode::INDICATOR) {
+            throw std::runtime_error(
+                "buildTimeSeriesOutputFileName() requires "
+                "ORBIT or INDICATOR mode.");
+        }
+
+        std::ostringstream name;
+
+        // ---------------------------------------------------------------------
+        // Computation type.
+        // ---------------------------------------------------------------------
+        if (init.getRunMode() == RunMode::ORBIT) {
+            name << "ORBIT";
+        } else {
+            name << Model::indicatorTypeToString(init.getIndicator());
+        }
+
+        // ---------------------------------------------------------------------
+        // Mathematical formalism.
+        // ---------------------------------------------------------------------
+        name << '_' << Model::formalismToString(init.getFormalism());
+
+        // ---------------------------------------------------------------------
+        // Integration duration.
+        // ---------------------------------------------------------------------
+        if (init.usesPhysicalIntegrationTime()) {
+            name << "_T-" << filenameNumber(init.getT());
+        } else if (init.usesOrbitalPeriods()) {
+            name << "_nP-" << filenameNumber(init.getNPeriods());
+        } else {
+            throw std::runtime_error("Unknown integration-duration input mode.");
+        }
+
+        // ---------------------------------------------------------------------
+        // Output time interval.
+        // ---------------------------------------------------------------------
+        name << "_dt-" << filenameNumber(init.getOutputDt());
+
+        // ---------------------------------------------------------------------
+        // P1-P2 separation.
+        // ---------------------------------------------------------------------
+        name << "_a2-" << filenameNumber(init.getA2());
+
+        // ---------------------------------------------------------------------
+        // Fixed orbital elements.
+        // ---------------------------------------------------------------------
+        const astro::OrbitalElements &elements = init.getElements();
+        name << "_a-" << filenameNumber(elements.a);
+        name << "_e-" << filenameNumber(elements.e);
+        name << "_i-" << filenameNumber(astro::toDeg(elements.i));
+        name << "_omega-" << filenameNumber(astro::toDeg(elements.omega));
+        name << "_Omega-" << filenameNumber(astro::toDeg(elements.Omega));
+
+        // ---------------------------------------------------------------------
+        // Orbital phase.
+        // ---------------------------------------------------------------------
+        if (init.usesFixedTau()) {
+            name << "_tau-" << filenameNumber(elements.tau);
+        } else if (init.usesFixedMeanAnomaly()) {
+            name << "_M-" << filenameNumber(astro::toDeg(init.getMeanAnomaly()));
+        } else {
+            throw std::runtime_error("Unknown orbital-phase input mode.");
+        }
+
+        // ---------------------------------------------------------------------
+        // File extension.
+        // ---------------------------------------------------------------------
+        name << ".txt";
+
+        return name.str();
+    }
+
+    /**
+     * @brief Builds an automatic output file name for GRID mode.
+     *
+     * The file name contains the selected chaos indicator, mathematical
+     * formalism, complete grid definitions, integration-duration mode,
+     * primary-body separation, and all fixed orbital elements.
+     *
+     * Each grid axis is represented by its orbital-element name, lower and
+     * upper limits, and number of intervals.
+     *
+     * Example:
+     *
+     *     LCI_NEWTONIAN_grid-a-4.8to5.8-N250_M-30to330-N30_
+     *     nP-100_a2-5.2026_e-0_i-0_omega-60_Omega-0.txt
+     *
+     * Angular fixed orbital elements are written in degrees.
+     *
+     * @param init Initialization data.
+     *
+     * @return Automatically generated output file name.
+     *
+     * @throws std::runtime_error If the function is called outside GRID mode.
+     */
+    std::string buildGridOutputFileName(const InitData &init)
+    {
+        if (init.getRunMode() != RunMode::GRID) {
+            throw std::runtime_error("buildGridOutputFileName() requires GRID mode.");
+        }
+
+        std::ostringstream name;
+        // ---------------------------------------------------------------------
+        // Chaos indicator and mathematical formalism.
+        // ---------------------------------------------------------------------
+        name << Model::indicatorTypeToString(init.getIndicator()) << '_'
+             << Model::formalismToString(init.getFormalism());
+
+        // ---------------------------------------------------------------------
+        // Grid definitions.
+        // ---------------------------------------------------------------------
+
+        name << "_grid";
+        for (const GridAxis &axis : init.getGridAxes()) {
+            name << '_' << orbitalElementToString(axis.element) << '-' << filenameNumber(axis.min) << "to"
+                 << filenameNumber(axis.max) << "-N" << axis.nIntervals;
+        }
+
+        // ---------------------------------------------------------------------
+        // Integration duration.
+        // ---------------------------------------------------------------------
+        if (init.usesPhysicalIntegrationTime()) {
+            name << "_T-" << filenameNumber(init.getT());
+
+        } else if (init.usesOrbitalPeriods()) {
+            name << "_nP-" << filenameNumber(init.getNPeriods());
+
+        } else {
+            throw std::runtime_error("Unknown integration-duration input mode.");
+        }
+
+        // ---------------------------------------------------------------------
+        // P1-P2 separation.
+        // ---------------------------------------------------------------------
+        name << "_a2-" << filenameNumber(init.getA2());
+
+        // ---------------------------------------------------------------------
+        // Fixed orbital elements.
+        // ---------------------------------------------------------------------
+        const astro::OrbitalElements &elements   = init.getElements();
+        const auto                   &gridAxes   = init.getGridAxes();
+        const auto                    isGridAxis = [&gridAxes](OrbitalElement element) {
+            return std::any_of(gridAxes.begin(), gridAxes.end(),
+                               [element](const GridAxis &axis) { return axis.element == element; });
+        };
+
+        if (!isGridAxis(OrbitalElement::SEMIMAJOR_AXIS)) {
+            name << "_a-" << filenameNumber(elements.a);
+        }
+
+        if (!isGridAxis(OrbitalElement::ECCENTRICITY)) {
+            name << "_e-" << filenameNumber(elements.e);
+        }
+
+        if (!isGridAxis(OrbitalElement::INCLINATION)) {
+            name << "_i-" << filenameNumber(astro::toDeg(elements.i));
+        }
+
+        if (!isGridAxis(OrbitalElement::ARGUMENT_OF_PERICENTER)) {
+            name << "_omega-" << filenameNumber(astro::toDeg(elements.omega));
+        }
+
+        if (!isGridAxis(OrbitalElement::LONGITUDE_OF_ASCENDING_NODE)) {
+            name << "_Omega-" << filenameNumber(astro::toDeg(elements.Omega));
+        }
+
+        // ---------------------------------------------------------------------
+        // Fixed orbital phase.
+        // ---------------------------------------------------------------------
+        if (!isGridAxis(OrbitalElement::PERICENTER_TIME) && !isGridAxis(OrbitalElement::MEAN_ANOMALY)) {
+            if (init.usesFixedTau()) {
+                name << "_tau-" << filenameNumber(elements.tau);
+
+            } else if (init.usesFixedMeanAnomaly()) {
+                name << "_M-" << filenameNumber(astro::toDeg(init.getMeanAnomaly()));
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // File extension.
+        // ---------------------------------------------------------------------
+        name << ".txt";
+
+        return name.str();
+    }
+
+    /**
      * @brief Parses command-line arguments.
      *
      * Processes the input and output file options and stores the file name,
@@ -262,33 +496,66 @@ namespace {
     }
 
     /**
-     * @brief Opens the output stream.
+     * @brief Opens the program output stream.
      *
-     * If an output file is specified on the command line, the file is opened
-     * using its full path. Otherwise, the standard output stream is returned.
+     * If an output file is explicitly specified with the -o command-line
+     * option, that file is used. Otherwise, an output file name is generated
+     * automatically from the initialization parameters.
      *
-     * @param opt Command-line options.
+     * If verbose output is enabled, the absolute path of the opened output
+     * file is printed to the standard output.
+     *
+     * Automatic output-file naming is currently implemented for GRID mode.
+     *
+     * @param opt Parsed command-line options.
+     * @param init Initialization data.
      * @param fout Output file stream.
      *
-     * @return Pointer to the selected output stream.
+     * @return Pointer to the opened output stream.
      *
-     * @throws std::runtime_error If the output file cannot be opened.
+     * @throws std::runtime_error If an automatic output file name cannot be
+     *         generated or the output file cannot be opened.
      */
-    std::ostream *openOutputStream(const CommandLineOptions &opt, std::ofstream &fout)
+    std::ostream *openOutputStream(const CommandLineOptions &opt, const InitData &init, std::ofstream &fout)
     {
-        if (opt.output_path.empty()) {
-            return &std::cout;
+        fs::path outputPath;
+
+        // Use the explicitly specified output file if -o was given.
+        if (!opt.output_path.empty()) {
+            outputPath = opt.output_path;
+        } else {
+            // Generate the output file name automatically.
+            switch (init.getRunMode()) {
+                case RunMode::ORBIT:
+                case RunMode::INDICATOR:
+                    outputPath = buildTimeSeriesOutputFileName(init);
+                    break;
+
+                case RunMode::GRID:
+                    outputPath = buildGridOutputFileName(init);
+                    break;
+
+                default:
+                    throw std::runtime_error("Unknown run mode while generating output file name.");
+            }
         }
 
-        fout.open(opt.output_path);
+        // Convert the output path to an absolute path.
+        outputPath = fs::absolute(outputPath);
 
+        // Open the output file.
+        fout.open(outputPath);
         if (!fout) {
-            throw std::runtime_error("Cannot open output file: " + opt.output_path);
+            throw std::runtime_error("Cannot open output file: " + outputPath.string());
+        }
+
+        // Display the actual output path in verbose mode.
+        if (opt.verbose) {
+            std::cout << "Output file    : " << outputPath.string() << '\n';
         }
 
         return &fout;
     }
-
     /**
      * @brief Limits the current integration step size.
      *
@@ -912,6 +1179,263 @@ void runGrid(CRTBP2D &model, const InitData &init, std::ostream &out, StepContro
     std::cerr << '\n';
 }
 
+/**
+ * @brief Computes a chaos indicator over a multidimensional
+ *        orbital-element grid.
+ *
+ * Integrates the CRTBP equations and variational equations for every
+ * point of an arbitrary orbital-element grid and writes the final value
+ * of the selected chaos indicator.
+ *
+ * Fixed orbital elements are obtained from InitData, while grid-controlled
+ * elements are replaced by the current values supplied by GridIterator.
+ *
+ * The orbital phase may be specified either by tau or M, as a fixed input
+ * value or as a grid axis. If M is a grid axis, the corresponding time of
+ * pericenter passage is calculated from the current semimajor axis.
+ *
+ * If the integration duration is specified by nPeriods, the physical
+ * duration is recalculated independently at every grid point from the
+ * current semimajor axis of P3.
+ *
+ * Physical times are expressed in days, while numerical integration is
+ * performed in dimensionless CRTBP time.
+ *
+ * @param model CRTBP model.
+ * @param init Initialization data.
+ * @param out Output stream.
+ * @param step Adaptive integration step-control parameters.
+ * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit
+ *              [AU^3/day^2].
+ * @param n Mean motion of the P1-P2 system [rad/day].
+ *
+ * @throws std::runtime_error If the selected chaos indicator is invalid.
+ */
+void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, StepControl &step, double mu_13, double n)
+{
+    constexpr int W = 18;
+
+    // Construct the multidimensional orbital-element grid iterator.
+    GridIterator grid(init.getGridAxes());
+
+    // ---------------------------------------------------------------------
+    // Check the selected chaos indicator.
+    // ---------------------------------------------------------------------
+
+    switch (model.getIndicator()) {
+        case Model::IndicatorType::FLI:
+        case Model::IndicatorType::LCI:
+            break;
+
+        case Model::IndicatorType::RLI:
+            throw std::runtime_error("RLI indicator is not yet implemented.");
+
+        case Model::IndicatorType::NONE:
+            throw std::runtime_error("GRID mode requires a chaos indicator.");
+
+        default:
+            throw std::runtime_error("Unknown chaos indicator.");
+    }
+
+    // ---------------------------------------------------------------------
+    // Write the output header.
+    // ---------------------------------------------------------------------
+
+    // Write the grid-axis column headers.
+    for (const GridAxis &axis : init.getGridAxes()) {
+        const std::string label =
+            std::string(orbitalElementToString(axis.element)) + " [" + orbitalElementUnit(axis.element) + "]";
+
+        out << std::left << std::setw(W) << label;
+    }
+
+    // Write the chaos-indicator column header.
+    switch (model.getIndicator()) {
+        case Model::IndicatorType::FLI:
+            out << std::setw(W) << "FLI";
+            break;
+
+        case Model::IndicatorType::LCI:
+            out << std::setw(W) << "LCI [1/day]";
+            break;
+
+        default:
+            break;
+    }
+    out << '\n';
+    out << std::right << std::scientific << std::setprecision(10);
+
+    // ---------------------------------------------------------------------
+    // Save the initial adaptive step-control values.
+    // ---------------------------------------------------------------------
+
+    const double initial_h     = step.h;
+    const double initial_h_max = step.h_max;
+    const double initial_h_min = step.h_min;
+
+    // ---------------------------------------------------------------------
+    // Iterate over all grid points.
+    // ---------------------------------------------------------------------
+    do {
+        // Reset the dimensionless CRTBP integration time.
+        model.setT(0.0);
+
+        // Reset the adaptive step-size control.
+        step.h     = initial_h;
+        step.h_nxt = initial_h;
+        step.h_did = 0.0;
+        step.h_max = initial_h_max;
+        step.h_min = initial_h_min;
+        step.n_tst = 0;
+        step.n_int = 0;
+
+        // -----------------------------------------------------------------
+        // Construct the orbital elements for the current grid point.
+        // -----------------------------------------------------------------
+
+        // Start from the fixed orbital elements specified in the input file.
+        astro::OrbitalElements elements = init.getElements();
+
+        // Apply all grid-controlled orbital elements that are stored
+        // directly in astro::OrbitalElements.
+        grid.apply(elements);
+
+        // -----------------------------------------------------------------
+        // Resolve the orbital phase.
+        // -----------------------------------------------------------------
+
+        if (grid.hasAxis(OrbitalElement::MEAN_ANOMALY)) {
+            // Mean anomaly is specified in degrees in the grid.
+            const double meanAnomaly = astro::toRad(grid.getValue(OrbitalElement::MEAN_ANOMALY));
+
+            // Keplerian mean motion of P3 [rad/day].
+            const double n_3 = std::sqrt(mu_13 / astro::cube(elements.a));
+
+            // M(t0) = n_3 * (t0 - tau)
+            //
+            // therefore
+            //
+            // tau = t0 - M(t0) / n_3.
+            elements.tau = init.getT0() - meanAnomaly / n_3;
+
+        } else if (grid.hasAxis(OrbitalElement::PERICENTER_TIME)) {
+            // tau has already been assigned by grid.apply().
+            // No additional conversion is required.
+
+        } else {
+            // The orbital phase is fixed in the input file.
+            //
+            // calc_tau() returns the specified tau directly or calculates
+            // it from the fixed mean anomaly using the current semimajor axis.
+            elements.tau = init.calc_tau(mu_13, elements.a);
+        }
+
+        // -----------------------------------------------------------------
+        // Calculate the integration duration for the current grid point.
+        // -----------------------------------------------------------------
+
+        const double duration = init.calcIntegrationDuration(mu_13, elements.a);
+        const double tDimless = CRTBP2D::toDimlessTime(duration, n);
+
+        // -----------------------------------------------------------------
+        // Construct the initial CRTBP state.
+        // -----------------------------------------------------------------
+
+        // Orbital elements -> heliocentric inertial Cartesian state.
+        const astro::State state = astro::calcState(mu_13, init.getT0(), elements);
+
+        // Heliocentric inertial state ->
+        // dimensionless rotating CRTBP state.
+        model.inertialToCRTBP(state, init.getA2(), n);
+
+        // Convert only the orbital state to Hamiltonian canonical
+        // variables if required.
+        if (model.getFormalism() == Model::Formalism::HAMILTONIAN) {
+            model.velocityToHamiltonian();
+        }
+
+        // Set the initial deviation vector exactly as specified
+        // in the input file.
+        std::copy_n(init.getDy(), 4, model.getY() + 4);
+
+        // -----------------------------------------------------------------
+        // Initialize the selected chaos indicator.
+        // -----------------------------------------------------------------
+
+        double indicator_value = 0.0;
+
+        if (model.getIndicator() == Model::IndicatorType::FLI) {
+            indicator_value = chaos_indicator::computeFLI(model.getY(), 1.0);
+        }
+
+        bool valid = true;
+
+        // -----------------------------------------------------------------
+        // Integrate the current grid point.
+        // -----------------------------------------------------------------
+
+        while (model.getT() < tDimless - TIME_EPS) {
+            // Check the numerical state periodically.
+            if (step.n_tst % 10 == 0) {
+                if (!checkFinite(model.getY(), model.getNVar())) {
+                    valid = false;
+                    break;
+                }
+            }
+
+            // Force the last integration step to end exactly at
+            // the final dimensionless integration time.
+            limitStep(model.getT(), tDimless, step);
+
+            // Integrate the orbit and variational equations.
+            ode_integrator::rkf54(model, model.getParams(), step, init.getRelTol(), init.getAbsTol());
+
+            ++step.n_int;
+            ++step.n_tst;
+
+            // FLI is a running maximum and must therefore be updated
+            // after every accepted integration step.
+            if (model.getIndicator() == Model::IndicatorType::FLI) {
+                indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
+            }
+        } /* while */
+
+        // -----------------------------------------------------------------
+        // Final indicator value.
+        // -----------------------------------------------------------------
+
+        if (valid) {
+            // LCI only needs to be evaluated at the final integration time.
+            if (model.getIndicator() == Model::IndicatorType::LCI) {
+                // Convert the final dimensionless CRTBP time to physical time [day].
+                const double physicalTime = init.getT0() + CRTBP2D::toPhysicalTime(model.getT(), n);
+                indicator_value = chaos_indicator::computeLCI(physicalTime, init.getT0(), model.getY(), init.getDy());
+            }
+
+        } else {
+            indicator_value = std::numeric_limits<double>::quiet_NaN();
+            std::cerr << "\nNon-finite state encountered at grid point:\n";
+            grid.printCurrentPoint(std::cerr);
+            std::cerr << "Proceeding to the next grid point.\n";
+        }
+
+        // -----------------------------------------------------------------
+        // Write the current grid coordinates and the indicator value.
+        // -----------------------------------------------------------------
+
+        for (std::size_t axisIndex = 0; axisIndex < grid.getAxisCount(); ++axisIndex) {
+            out << std::setw(W) << grid.getValue(axisIndex);
+        }
+
+        out << std::setw(W) << indicator_value << '\n';
+
+        // Display the grid progress.
+        grid.printProgress(std::cerr);
+    } while (grid.next());
+
+    std::cerr << '\n';
+}
+
 void run(const InitData &init, const CommandLineOptions &opt)
 {
     const double mu    = init.getM2() / (init.getM1() + init.getM2());
@@ -926,7 +1450,7 @@ void run(const InitData &init, const CommandLineOptions &opt)
     StepControl  step            = createStepControl();
 
     std::ofstream fout;
-    std::ostream *out = openOutputStream(opt, fout);
+    std::ostream *out = openOutputStream(opt, init, fout);
     // Write program identification to the output.
     print::outputHeader(*out);
 
@@ -940,7 +1464,8 @@ void run(const InitData &init, const CommandLineOptions &opt)
             break;
 
         case RunMode::GRID:
-            runGrid(model, init, *out, step, mu_13, n);
+            // runGrid(     model, init, *out, step, mu_13, n);
+            runGridGeneral(model, init, *out, step, mu_13, n);
             break;
 
         default:
@@ -951,8 +1476,177 @@ void run(const InitData &init, const CommandLineOptions &opt)
 int main(int argc, char *argv[])
 {
     try {
+        // Test GridIterator traversal on a simple two-dimensional (a,e) grid.
+        // The test verifies the grid-point order, axis indexing, current values,
+        // and the total number of visited grid points.
+#if 0
+        {
+            const std::vector<GridAxis> axes = {
+                {
+                    OrbitalElement::ECCENTRICITY,
+                    0.0,
+                    0.2,
+                    1
+                },
+                {
+                    OrbitalElement::SEMIMAJOR_AXIS,
+                    3.0,
+                    5.0,
+                    2
+                }
+            };
+
+            testGridTraversal(axes);
+
+            return 0;
+        }
+#endif
+
+        // Test GridIterator traversal with a full-period mean-anomaly axis.
+        // The test verifies that the periodic M grid excludes the duplicated
+        // 360-degree endpoint and visits exactly 2 x 4 = 8 grid points.
+#if 0
+        const std::vector<GridAxis> axes = {
+            {
+                OrbitalElement::SEMIMAJOR_AXIS,
+                3.0,
+                4.0,
+                1
+            },
+            {
+                OrbitalElement::MEAN_ANOMALY,
+                0.0,
+                360.0,
+                4
+            }
+        };
+
+        testGridTraversal(axes);
+
+        return 0;
+#endif
+
+        // Test GridIterator traversal on a three-dimensional (a,e,M) grid.
+        // The test verifies multi-level index carry and periodic endpoint handling.
+#if 0
+        const std::vector<GridAxis> axes = {
+            {
+                OrbitalElement::SEMIMAJOR_AXIS,
+                3.0,
+                4.0,
+                1
+            },
+            {
+                OrbitalElement::ECCENTRICITY,
+                0.0,
+                0.2,
+                2
+            },
+            {
+                OrbitalElement::MEAN_ANOMALY,
+                0.0,
+                360.0,
+                4
+            }
+        };
+        testGridTraversal(axes);
+        return 0;
+#endif
+
+#if 0
+        // Test GridIterator traversal on a partial mean-anomaly interval.
+        // The test verifies that both endpoints are included for a non-full-period
+        // angular grid and that M advances from 0 to 180 degrees in 10-degree steps.
+        const std::vector<GridAxis> axes = {{OrbitalElement::MEAN_ANOMALY, 0.0, 180.0, 18}};
+        testGridTraversal(axes);
+        return 0;
+#endif
+
+        // Test applying current GridIterator values to orbital elements.
+        // The test verifies that a, e, and omega are updated according
+        // to the current grid point and that angular values are converted
+        // from degrees to radians.
+#if 0
+        {
+            const std::vector<GridAxis> axes = {{OrbitalElement::SEMIMAJOR_AXIS, 3.0, 5.0, 2},
+                                                {OrbitalElement::ECCENTRICITY, 0.0, 0.2, 2},
+                                                {OrbitalElement::ARGUMENT_OF_PERICENTER, 0.0, 180.0, 2}};
+
+            GridIterator grid(axes);
+
+            std::cout << "----------------------------------------\n";
+            std::cout << "GridIterator apply() test\n";
+            std::cout << "----------------------------------------\n";
+
+            std::size_t visited = 0;
+
+            do {
+                astro::OrbitalElements elements{};
+
+                // Set fixed orbital elements to easily recognizable values.
+                elements.i     = astro::toRad(5.0);
+                elements.Omega = astro::toRad(15.0);
+                elements.tau   = 123.0;
+
+                // Apply the current grid-controlled orbital elements.
+                grid.apply(elements);
+
+                std::cout << "point " << visited << " : "
+                          << "a=" << elements.a << "  e=" << elements.e << "  omega=" << elements.omega << " rad"
+                          << "  i=" << elements.i << " rad"
+                          << "  Omega=" << elements.Omega << " rad"
+                          << "  tau=" << elements.tau << '\n';
+
+                ++visited;
+
+            } while (grid.next());
+
+            std::cout << '\n';
+            std::cout << "visited     : " << visited << '\n';
+            std::cout << "expected    : " << grid.getTotalPointCount() << '\n';
+
+            if (visited != grid.getTotalPointCount()) {
+                throw std::runtime_error(
+                    "GridIterator apply() test failed: "
+                    "incorrect number of visited grid points.");
+            }
+
+            std::cout << "result      : OK\n";
+
+            return 0;
+        }
+#endif
+
         CommandLineOptions opt;
         parseCommandLine(argc, argv, opt);
+
+#if 0
+        {
+            const InitData init(opt.input_path);
+
+            std::cout << "----------------------------------------\n";
+            std::cout << "Automatic GRID output filename test\n";
+            std::cout << "----------------------------------------\n";
+
+            std::cout << buildGridOutputFileName(init) << '\n';
+
+            return EXIT_SUCCESS;
+        }
+#endif
+
+#if 0
+        {
+            const InitData init(opt.input_path);
+
+            std::cout << "----------------------------------------\n";
+            std::cout << "Automatic ORBIT output filename test\n";
+            std::cout << "----------------------------------------\n";
+
+            std::cout << buildTimeSeriesOutputFileName(init) << '\n';
+
+            return EXIT_SUCCESS;
+        }
+#endif
 
         if (opt.show_version) {
             print::version();

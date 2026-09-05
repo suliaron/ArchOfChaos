@@ -2,7 +2,7 @@
 
 #include "math_utils.h"  // astro::torad
 
-#include <algorithm>  // std::remove_if, std::transform
+#include <algorithm>  // std::remove_if, std::transform std::find_if_not, std::any_of
 #include <cmath>      // std::abs, std::sqrt
 #include <cctype>     // std::isspace, std::toupper
 #include <fstream>    // std::ifstream
@@ -55,6 +55,20 @@ void InitData::removeSpaces(std::string &text)
 {
     text.erase(std::remove_if(text.begin(), text.end(), [](unsigned char c) { return std::isspace(c) != 0; }),
                text.end());
+}
+
+void InitData::Trim(std::string &text)
+{
+    const auto first = std::find_if_not(text.begin(), text.end(), [](unsigned char c) { return std::isspace(c) != 0; });
+    const auto last =
+        std::find_if_not(text.rbegin(), text.rend(), [](unsigned char c) { return std::isspace(c) != 0; }).base();
+
+    if (first >= last) {
+        text.clear();
+        return;
+    }
+
+    text = std::string(first, last);
 }
 
 RunMode InitData::parseRunMode(const std::string &text)
@@ -129,8 +143,8 @@ void InitData::parseLine(const std::string &line)
         text.erase(comment);
     }
 
-    // Remove whitespace.
-    removeSpaces(text);
+    // Remove leading and trailing whitespace.
+    Trim(text);
 
     // Ignore empty lines.
     if (text.empty()) {
@@ -144,8 +158,12 @@ void InitData::parseLine(const std::string &line)
         throw std::runtime_error("Missing '=' in initialization file: " + line);
     }
 
-    const std::string key   = text.substr(0, pos);
-    const std::string value = text.substr(pos + 1);
+    std::string key   = text.substr(0, pos);
+    std::string value = text.substr(pos + 1);
+
+    // Remove whitespace surrounding the key and value.
+    Trim(key);
+    Trim(value);
 
     if (key.empty()) {
         throw std::runtime_error("Missing keyword in initialization file.");
@@ -171,6 +189,26 @@ void InitData::parseLine(const std::string &line)
         return;
     }
 
+    if (key == "grid") {
+        std::istringstream is(value);
+        std::string element_name;
+        GridAxis    axis{};
+
+        is >> element_name >> axis.min >> axis.max >> axis.nIntervals;
+
+        if (!is) {
+            throw std::runtime_error("Invalid grid definition: " + value);
+        }
+        is >> std::ws;
+        if (!is.eof()) {
+            throw std::runtime_error("Invalid grid definition: " + value);
+        }
+
+        axis.element = orbitalElementFromString(element_name);
+        grid_axes_.push_back(axis);
+        return;
+    }
+
     // Parse numerical values.
     std::istringstream is(value);
 
@@ -187,10 +225,6 @@ void InitData::parseLine(const std::string &line)
         is >> t0_;
 
     }
-    // else if (key == "T") {
-    //     is >> T_;
-    // }
-
     else if (key == "T") {
         if (integration_duration_input_ == IntegrationDurationInput::ORBITAL_PERIODS) {
             throw std::runtime_error("T and nPeriods cannot be specified simultaneously.");
@@ -206,18 +240,23 @@ void InitData::parseLine(const std::string &line)
     } else if (key == "output_dt") {
         is >> output_dt_;
     } else if (key == "a") {
+        registerFixedOrbitalElement(OrbitalElement::SEMIMAJOR_AXIS);
         is >> elements_.a;
     } else if (key == "e") {
+        registerFixedOrbitalElement(OrbitalElement::ECCENTRICITY);
         is >> elements_.e;
     } else if (key == "i") {
+        registerFixedOrbitalElement(OrbitalElement::INCLINATION);
         double value_deg = 0.0;
         is >> value_deg;
         elements_.i = astro::toRad(value_deg);
     } else if (key == "omega") {
+        registerFixedOrbitalElement(OrbitalElement::ARGUMENT_OF_PERICENTER);
         double value_deg = 0.0;
         is >> value_deg;
         elements_.omega = astro::toRad(value_deg);
     } else if (key == "Omega") {
+        registerFixedOrbitalElement(OrbitalElement::LONGITUDE_OF_ASCENDING_NODE);
         double value_deg = 0.0;
         is >> value_deg;
         elements_.Omega = astro::toRad(value_deg);
@@ -225,12 +264,14 @@ void InitData::parseLine(const std::string &line)
         if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
             throw std::runtime_error("Both tau and M are specified. Use only one.");
         }
+        registerFixedOrbitalElement(OrbitalElement::PERICENTER_TIME);
         is >> elements_.tau;
         orbital_phase_input_ = OrbitalPhaseInput::TAU;
     } else if (key == "M") {
         if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
             throw std::runtime_error("Both tau and M are specified. Use only one.");
         }
+        registerFixedOrbitalElement(OrbitalElement::MEAN_ANOMALY);
         double value_deg = 0.0;
         is >> value_deg;
         mean_anomaly_        = astro::toRad(value_deg);
@@ -308,6 +349,42 @@ double InitData::calcIntegrationDuration(double mu_13, double a) const
     throw std::runtime_error("Unknown integration-duration input method.");
 }
 
+bool InitData::hasGridAxis(OrbitalElement element) const noexcept
+{
+    return std::any_of(grid_axes_.begin(), grid_axes_.end(),
+                       [element](const GridAxis &axis) { return axis.element == element; });
+}
+
+bool InitData::hasFixedOrbitalElement(OrbitalElement element) const noexcept
+{
+    return fixed_elements_.find(element) != fixed_elements_.end();
+}
+
+void InitData::registerFixedOrbitalElement(OrbitalElement element)
+{
+    const bool inserted = fixed_elements_.insert(element).second;
+
+    if (!inserted) {
+        throw std::runtime_error("Duplicate fixed orbital element: " + std::string(orbitalElementToString(element)));
+    }
+}
+
+void InitData::validateOrbitalElementSource(OrbitalElement element) const
+{
+    const bool fixed = hasFixedOrbitalElement(element);
+    const bool grid  = hasGridAxis(element);
+
+    if (fixed && grid) {
+        throw std::runtime_error("Orbital element '" + std::string(orbitalElementToString(element)) +
+                                 "' cannot be specified both as a fixed value and as a grid axis.");
+    }
+
+    if (!fixed && !grid) {
+        throw std::runtime_error("Orbital element '" + std::string(orbitalElementToString(element)) +
+                                 "' must be specified either as a fixed value or as a grid axis.");
+    }
+}
+
 void InitData::validate() const
 {
     constexpr double PLANAR_EPS = 1.0e-12;
@@ -339,9 +416,7 @@ void InitData::validate() const
         case IntegrationDurationInput::NONE:
             throw std::runtime_error("Either T or nPeriods must be specified.");
     }
-    if (orbital_phase_input_ == OrbitalPhaseInput::NONE) {
-        throw std::runtime_error("Either tau or M must be specified.");
-    }
+
     if (rel_tol_ <= 0.0) {
         throw std::runtime_error("Relative tolerance relTol must be greater than zero.");
     }
@@ -355,38 +430,188 @@ void InitData::validate() const
             if (indicator_ != Model::IndicatorType::NONE) {
                 throw std::runtime_error("ORBIT mode requires indicator = NONE.");
             }
+
+            if (orbital_phase_input_ == OrbitalPhaseInput::NONE) {
+                throw std::runtime_error("ORBIT mode requires either tau or M.");
+            }
+
             if (output_dt_ <= 0.0) {
                 throw std::runtime_error("ORBIT mode requires output_dt > 0.");
             }
+
             if (elements_.a <= 0.0) {
                 throw std::runtime_error("Semimajor axis must be greater than zero.");
             }
+
             if (elements_.e < 0.0 || elements_.e >= 1.0) {
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
+
             if (std::abs(elements_.i) > PLANAR_EPS) {
                 throw std::runtime_error("CRTBP2D requires inclination i = 0.");
             }
+
             break;
 
         case RunMode::INDICATOR:
             if (indicator_ == Model::IndicatorType::NONE) {
                 throw std::runtime_error("INDICATOR mode requires an indicator.");
             }
+
+            if (orbital_phase_input_ == OrbitalPhaseInput::NONE) {
+                throw std::runtime_error("INDICATOR mode requires either tau or M.");
+            }
+
             if (output_dt_ <= 0.0) {
                 throw std::runtime_error("INDICATOR mode requires output_dt > 0.");
             }
+
             if (elements_.a <= 0.0) {
                 throw std::runtime_error("Semimajor axis must be greater than zero.");
             }
+
             if (elements_.e < 0.0 || elements_.e >= 1.0) {
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
+
             if (std::abs(elements_.i) > PLANAR_EPS) {
                 throw std::runtime_error("CRTBP2D requires inclination i = 0.");
             }
+
             break;
 
+        case RunMode::GRID: {
+            if (indicator_ == Model::IndicatorType::NONE) {
+                throw std::runtime_error("GRID mode requires an indicator.");
+            }
+
+            // At least one grid axis must be specified.
+            if (grid_axes_.empty()) {
+                throw std::runtime_error("GRID mode requires at least one grid axis.");
+            }
+
+            // A physical orbit has six independent orbital elements.
+            // The orbital phase may be represented either by tau or by M.
+            if (grid_axes_.size() > 6) {
+                throw std::runtime_error("GRID mode supports at most six independent grid axes.");
+            }
+
+            // Check for duplicate grid axes.
+            for (std::size_t i = 0; i < grid_axes_.size(); ++i) {
+                for (std::size_t j = i + 1; j < grid_axes_.size(); ++j) {
+                    if (grid_axes_[i].element == grid_axes_[j].element) {
+                        throw std::runtime_error("Duplicate grid axis: " +
+                                                 std::string(orbitalElementToString(grid_axes_[i].element)));
+                    }
+                }
+            }
+
+            // Validate every grid axis.
+            for (const GridAxis &axis : grid_axes_) {
+                // Check that each geometric orbital element is specified exactly once:
+                // either as a fixed input value or as a grid axis.
+                validateOrbitalElementSource(OrbitalElement::SEMIMAJOR_AXIS);
+                validateOrbitalElementSource(OrbitalElement::ECCENTRICITY);
+                validateOrbitalElementSource(OrbitalElement::INCLINATION);
+                validateOrbitalElementSource(OrbitalElement::ARGUMENT_OF_PERICENTER);
+                validateOrbitalElementSource(OrbitalElement::LONGITUDE_OF_ASCENDING_NODE);
+
+                if (axis.nIntervals == 0) {
+                    throw std::runtime_error("Grid axis '" + std::string(orbitalElementToString(axis.element)) +
+                                             "' requires nIntervals > 0.");
+                }
+
+                if (axis.max <= axis.min) {
+                    throw std::runtime_error("Grid axis '" + std::string(orbitalElementToString(axis.element)) +
+                                             "' requires max > min.");
+                }
+
+                switch (axis.element) {
+                    case OrbitalElement::SEMIMAJOR_AXIS:
+                        if (axis.min <= 0.0) {
+                            throw std::runtime_error("Semimajor-axis grid requires a > 0.");
+                        }
+                        break;
+
+                    case OrbitalElement::ECCENTRICITY:
+                        if (axis.min < 0.0 || axis.max >= 1.0) {
+                            throw std::runtime_error("Eccentricity grid requires 0 <= e < 1.");
+                        }
+                        break;
+
+                    case OrbitalElement::INCLINATION:
+                        // Grid angular values are still stored in degrees here.
+                        if (std::abs(axis.min) > PLANAR_EPS || std::abs(axis.max) > PLANAR_EPS) {
+                            throw std::runtime_error("CRTBP2D currently requires inclination i = 0.");
+                        }
+                        break;
+
+                    case OrbitalElement::ARGUMENT_OF_PERICENTER:
+                        if (axis.min < 0.0 || axis.max > 360.0) {
+                            throw std::runtime_error("Argument-of-pericenter grid requires 0 <= omega <= 360 deg.");
+                        }
+                        break;
+
+                    case OrbitalElement::LONGITUDE_OF_ASCENDING_NODE:
+                        if (axis.min < 0.0 || axis.max > 360.0) {
+                            throw std::runtime_error(
+                                "Longitude-of-ascending-node grid requires 0 <= Omega <= 360 deg.");
+                        }
+                        break;
+
+                    case OrbitalElement::MEAN_ANOMALY:
+                        if (axis.min < 0.0 || axis.max > 360.0) {
+                            throw std::runtime_error("Mean-anomaly grid requires 0 <= M <= 360 deg.");
+                        }
+                        break;
+
+                    case OrbitalElement::PERICENTER_TIME:
+                        break;
+                }
+            }
+
+            const bool hasA   = hasGridAxis(OrbitalElement::SEMIMAJOR_AXIS);
+            const bool hasE   = hasGridAxis(OrbitalElement::ECCENTRICITY);
+            const bool hasI   = hasGridAxis(OrbitalElement::INCLINATION);
+            const bool hasTau = hasGridAxis(OrbitalElement::PERICENTER_TIME);
+            const bool hasM   = hasGridAxis(OrbitalElement::MEAN_ANOMALY);
+
+            // tau and M are alternative representations of the orbital phase.
+            if (hasTau && hasM) {
+                throw std::runtime_error("tau and M cannot both be used as grid axes.");
+            }
+
+            // The orbital phase cannot be both fixed and grid-controlled.
+            if ((hasTau || hasM) && orbital_phase_input_ != OrbitalPhaseInput::NONE) {
+                throw std::runtime_error(
+                    "Orbital phase cannot be specified both as a fixed "
+                    "input value and as a grid axis.");
+            }
+
+            // If the phase is not controlled by the grid, a fixed phase
+            // must be specified.
+            if (!hasTau && !hasM && orbital_phase_input_ == OrbitalPhaseInput::NONE) {
+                throw std::runtime_error(
+                    "GRID mode requires tau or M either as a fixed "
+                    "orbital-phase input or as a grid axis.");
+            }
+
+            // Validate orbital elements that are not controlled by the grid.
+            if (!hasA && elements_.a <= 0.0) {
+                throw std::runtime_error("Semimajor axis must be greater than zero.");
+            }
+
+            if (!hasE && (elements_.e < 0.0 || elements_.e >= 1.0)) {
+                throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
+            }
+
+            if (!hasI && std::abs(elements_.i) > PLANAR_EPS) {
+                throw std::runtime_error("CRTBP2D requires inclination i = 0.");
+            }
+
+            break;
+        }
+            /*
         case RunMode::GRID:
             if (indicator_ == Model::IndicatorType::NONE) {
                 throw std::runtime_error("GRID mode requires an indicator.");
@@ -410,6 +635,7 @@ void InitData::validate() const
                 throw std::runtime_error("GRID mode requires Ne > 0.");
             }
             break;
+            */
     }
 }
 
@@ -452,16 +678,37 @@ void InitData::print(std::ostream &os) const
     os << "----------------------------------------\n";
     os << "Initialization data\n";
     os << "----------------------------------------\n";
+
     os << "run mode      : " << runModeToString(run_mode_) << '\n';
     os << "indicator     : " << Model::indicatorTypeToString(indicator_) << '\n';
     os << "formalism     : " << Model::formalismToString(formalism_) << '\n';
-    os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
+
+    // Orbital-phase input.
+    if (run_mode_ == RunMode::GRID) {
+        if (hasGridAxis(OrbitalElement::MEAN_ANOMALY)) {
+            os << "phase input   : GRID(M)\n";
+        } else if (hasGridAxis(OrbitalElement::PERICENTER_TIME)) {
+            os << "phase input   : GRID(tau)\n";
+        } else {
+            os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
+        }
+    } else {
+        os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
+    }
+
+    // Numerical integration tolerances.
     os << "relTol        : " << std::setw(W) << rel_tol_ << '\n';
     os << "absTol        : " << std::setw(W) << abs_tol_ << '\n';
+
+    // Primary-system parameters.
     os << "m1            : " << std::setw(W) << m1_ << " [M_sun]\n";
     os << "m2            : " << std::setw(W) << m2_ << " [M_sun]\n";
     os << "a2            : " << std::setw(W) << a2_ << " [AU]\n";
+
+    // Initial physical epoch.
     os << "t0            : " << std::setw(W) << t0_ << " [day]\n";
+
+    // Integration-duration input.
     os << "duration input: " << integrationDurationInputToString(integration_duration_input_) << '\n';
 
     switch (integration_duration_input_) {
@@ -476,6 +723,11 @@ void InitData::print(std::ostream &os) const
         case IntegrationDurationInput::NONE:
             break;
     }
+
+    // ---------------------------------------------------------------------
+    // ORBIT and INDICATOR modes
+    // ---------------------------------------------------------------------
+
     if (run_mode_ == RunMode::ORBIT || run_mode_ == RunMode::INDICATOR) {
         os << "output_dt     : " << std::setw(W) << output_dt_ << " [day]\n";
 
@@ -485,7 +737,6 @@ void InitData::print(std::ostream &os) const
         os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
         os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
         os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
-
         if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
             os << "tau           : " << std::setw(W) << elements_.tau << " [day]\n";
         } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
@@ -493,27 +744,51 @@ void InitData::print(std::ostream &os) const
         }
     }
 
+    // ---------------------------------------------------------------------
+    // GRID mode
+    // ---------------------------------------------------------------------
+
     if (run_mode_ == RunMode::GRID) {
-        // Grid parameters.
-        os << "a0            : " << std::setw(W) << a0_ << " [AU]\n";
-        os << "a1            : " << std::setw(W) << a1_ << " [AU]\n";
-        os << "Na            : " << std::setw(W) << Na_ << '\n';
-        os << "e0            : " << std::setw(W) << e0_ << '\n';
-        os << "e1            : " << std::setw(W) << e1_ << '\n';
-        os << "Ne            : " << std::setw(W) << Ne_ << '\n';
+        // Fixed orbital elements not controlled by the grid.
+        if (!hasGridAxis(OrbitalElement::SEMIMAJOR_AXIS)) {
+            os << "a             : " << std::setw(W) << elements_.a << " [AU]\n";
+        }
+        if (!hasGridAxis(OrbitalElement::ECCENTRICITY)) {
+            os << "e             : " << std::setw(W) << elements_.e << '\n';
+        }
+        if (!hasGridAxis(OrbitalElement::INCLINATION)) {
+            os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
+        }
+        if (!hasGridAxis(OrbitalElement::ARGUMENT_OF_PERICENTER)) {
+            os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
+        }
+        if (!hasGridAxis(OrbitalElement::LONGITUDE_OF_ASCENDING_NODE)) {
+            os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
+        }
+        // Fixed orbital phase, if the phase is not controlled by the grid.
+        if (!hasGridAxis(OrbitalElement::PERICENTER_TIME) && !hasGridAxis(OrbitalElement::MEAN_ANOMALY)) {
+            if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+                os << "tau           : " << std::setw(W) << elements_.tau << " [day]\n";
 
-        // Fixed orbital elements.
-        os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
-        os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
-        os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
+            } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+                os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
+            }
+        }
 
-        if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
-            os << "tau           : " << std::setw(W) << elements_.tau << '\n';
-        } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
-            os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
+        // Grid-axis definitions.
+        os << "grid axes     : " << grid_axes_.size() << '\n';
+
+        os << std::left << std::setw(16) << " " << std::setw(10) << "element" << std::right << std::setw(W) << "min"
+           << std::setw(W) << "max" << std::setw(W) << "intervals" << std::setw(10) << "unit" << '\n';
+
+        for (const GridAxis &axis : grid_axes_) {
+            os << std::left << std::setw(14) << "grid" << std::setw(10) << ":" << orbitalElementToString(axis.element)
+               << std::right << std::setw(W) << axis.min << std::setw(W) << axis.max << std::setw(W) << axis.nIntervals
+               << std::setw(10) << orbitalElementUnit(axis.element) << '\n';
         }
     }
 
+    // Initial deviation vector.
     if (indicator_ != Model::IndicatorType::NONE) {
         os << "dy1           : " << std::setw(W) << dy_[0] << '\n';
         os << "dy2           : " << std::setw(W) << dy_[1] << '\n';
@@ -521,3 +796,95 @@ void InitData::print(std::ostream &os) const
         os << "dy4           : " << std::setw(W) << dy_[3] << '\n';
     }
 }
+
+// void InitData::print(std::ostream &os) const
+//{
+//     constexpr int W = 18;
+//
+//     os << "----------------------------------------\n";
+//     os << "Initialization data\n";
+//     os << "----------------------------------------\n";
+//     os << "run mode      : " << runModeToString(run_mode_) << '\n';
+//     os << "indicator     : " << Model::indicatorTypeToString(indicator_) << '\n';
+//     os << "formalism     : " << Model::formalismToString(formalism_) << '\n';
+//     os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
+//     os << "relTol        : " << std::setw(W) << rel_tol_ << '\n';
+//     os << "absTol        : " << std::setw(W) << abs_tol_ << '\n';
+//     os << "m1            : " << std::setw(W) << m1_ << " [M_sun]\n";
+//     os << "m2            : " << std::setw(W) << m2_ << " [M_sun]\n";
+//     os << "a2            : " << std::setw(W) << a2_ << " [AU]\n";
+//     os << "t0            : " << std::setw(W) << t0_ << " [day]\n";
+//     os << "duration input: " << integrationDurationInputToString(integration_duration_input_) << '\n';
+//
+//     switch (integration_duration_input_) {
+//         case IntegrationDurationInput::PHYSICAL_TIME:
+//             os << "T             : " << std::setw(W) << T_ << " [day]\n";
+//             break;
+//
+//         case IntegrationDurationInput::ORBITAL_PERIODS:
+//             os << "nPeriods      : " << std::setw(W) << n_periods_ << '\n';
+//             break;
+//
+//         case IntegrationDurationInput::NONE:
+//             break;
+//     }
+//
+//     if (run_mode_ == RunMode::ORBIT || run_mode_ == RunMode::INDICATOR) {
+//         os << "output_dt     : " << std::setw(W) << output_dt_ << " [day]\n";
+//
+//         // Orbital elements.
+//         os << "a             : " << std::setw(W) << elements_.a << " [AU]\n";
+//         os << "e             : " << std::setw(W) << elements_.e << '\n';
+//         os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
+//         os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
+//         os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
+//
+//         if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+//             os << "tau           : " << std::setw(W) << elements_.tau << " [day]\n";
+//         } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+//             os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
+//         }
+//     }
+//
+//     if (run_mode_ == RunMode::GRID) {
+//         os << "grid axes     : " << grid_axes_.size() << '\n';
+//
+//         os << std::left << std::setw(16) << " " << std::setw(10) << "element" << std::right << std::setw(W) << "min"
+//            << std::setw(W) << "max" << std::setw(W) << "intervals" << '\n';
+//
+//         for (const GridAxis &axis : grid_axes_) {
+//             os << std::left << std::setw(16) << "grid" << std::setw(10) << orbitalElementToString(axis.element)
+//                << std::right << std::setw(W) << axis.min << std::setw(W) << axis.max << std::setw(W) <<
+//                axis.nIntervals
+//                << '\n';
+//         }
+//     }
+//
+//     // if (run_mode_ == RunMode::GRID) {
+//     //     // Grid parameters.
+//     //     os << "a0            : " << std::setw(W) << a0_ << " [AU]\n";
+//     //     os << "a1            : " << std::setw(W) << a1_ << " [AU]\n";
+//     //     os << "Na            : " << std::setw(W) << Na_ << '\n';
+//     //     os << "e0            : " << std::setw(W) << e0_ << '\n';
+//     //     os << "e1            : " << std::setw(W) << e1_ << '\n';
+//     //     os << "Ne            : " << std::setw(W) << Ne_ << '\n';
+//
+//     //    // Fixed orbital elements.
+//     //    os << "i             : " << std::setw(W) << elements_.i << " [rad]\n";
+//     //    os << "omega         : " << std::setw(W) << elements_.omega << " [rad]\n";
+//     //    os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
+//
+//     //    if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
+//     //        os << "tau           : " << std::setw(W) << elements_.tau << '\n';
+//     //    } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+//     //        os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
+//     //    }
+//     //}
+//
+//     if (indicator_ != Model::IndicatorType::NONE) {
+//         os << "dy1           : " << std::setw(W) << dy_[0] << '\n';
+//         os << "dy2           : " << std::setw(W) << dy_[1] << '\n';
+//         os << "dy3           : " << std::setw(W) << dy_[2] << '\n';
+//         os << "dy4           : " << std::setw(W) << dy_[3] << '\n';
+//     }
+// }
