@@ -4,9 +4,10 @@
 
 The program integrates trajectories of a massless third body in the gravitational field of two primaries moving on circular orbits. It supports both **Newtonian** and **Hamiltonian** formulations, computes chaos indicators from the variational equations, and can evaluate those indicators over arbitrary multidimensional grids of orbital elements.
 
+Current development version documented here: **1.7.0**.
 
 > **Project status:** active research/development software.  
-> The current implementation has been tested against selected regression cases, but it should still be treated as research code rather than a general-purpose production library.
+> The current implementation has been extensively tested against selected regression cases, but it should still be treated as research code rather than a general-purpose production library.
 
 ---
 
@@ -32,6 +33,7 @@ The program integrates trajectories of a massless third body in the gravitationa
 - [Validation and regression tests](#validation-and-regression-tests)
 - [Project structure](#project-structure)
 - [Known limitations](#known-limitations)
+- [Reproducibility recommendations](#reproducibility-recommendations)
 - [Suggested repository additions](#suggested-repository-additions)
 
 ---
@@ -170,6 +172,39 @@ M = <mean anomaly in degrees>
 
 These are alternative representations of the same orbital-phase information.
 
+## Logarithmic INDICATOR output
+
+`INDICATOR` mode uses a logarithmic output schedule designed for long integrations. The first elapsed physical output time and the number of samples in each time decade are controlled by
+
+```text
+output_first = ...
+output_points_per_decade = ...
+```
+
+The defaults are
+
+```text
+output_first = 1.0
+output_points_per_decade = 9
+```
+
+For example,
+
+```text
+output_first = 1.0e-4
+output_points_per_decade = 9
+```
+
+produces elapsed output times
+
+```text
+1e-4, 2e-4, ..., 9e-4,
+1e-3, 2e-3, ..., 9e-3,
+1e-2, ...
+```
+
+The final integration point is always written, even when it does not coincide with the regular schedule.
+
 ## Automatic output naming
 
 If no `-o` command-line option is supplied, the program automatically constructs a descriptive output file name from the model parameters.
@@ -252,6 +287,8 @@ The input file uses the following physical units.
 | `t0` | day |
 | `T` | day |
 | `output_dt` | day |
+| `output_first` | day (elapsed from `t0`) |
+| `output_points_per_decade` | dimensionless integer |
 | `relTol`, `absTol` | dimensionless numerical tolerances |
 
 Angular input values are converted internally to radians.
@@ -392,7 +429,24 @@ indicator = LCI
 formalism = HAMILTONIAN
 ```
 
-`output_dt` determines the output cadence.
+INDICATOR output uses a logarithmic schedule. The first elapsed physical output time and the number of points per decade are controlled by
+
+```text
+output_first = 1.0e-4
+output_points_per_decade = 9
+```
+
+With these values the output times are
+
+```text
+1e-4, 2e-4, ..., 9e-4,
+1e-3, 2e-3, ..., 9e-3,
+1e-2, ...
+```
+
+The final integration point is always written. If the final time is already a scheduled output time, it is written only once. The initial `t = 0` indicator value is not written, which makes the result directly suitable for logarithmic time axes.
+
+`output_dt` is used only by `ORBIT` mode.
 
 ---
 
@@ -438,6 +492,18 @@ x64\Release\archofchaos.exe
 The exact C++ language standard and compiler options are controlled by the Visual Studio project settings.
 
 At present this README does not define a separate CMake/Linux build workflow.
+
+---
+
+## Dependencies
+
+Arch of Chaos uses the companion C++ library **AstroLib** for common
+astronomical data types, orbital transformations, mathematical utilities,
+time conversion, and logarithmic output scheduling.
+
+AstroLib is available at:
+
+https://github.com/suliaron/AstroLib
 
 ---
 
@@ -819,61 +885,95 @@ Although the generic grid infrastructure recognizes `i`, the current dynamical m
 Therefore the planar CRTBP validation requires
 
 ```text
-i = 0
+0 <= i < PLANAR_EPS
 ```
 
-within numerical tolerance.
+for both fixed and grid-controlled inclination values. The allowed interval is only a numerical tolerance around the planar value.
 
-A genuinely three-dimensional spatial CRTBP is not currently implemented.
+A genuinely three-dimensional spatial CRTBP is not implemented in version 1.7.0.
 
 ---
 
 # Output files
 
-Every output file starts with a program/version comment, for example
+Every numerical output file is self-describing and starts with a reproducibility header before the numerical data. The header contains
+
+- program name and version;
+- author and affiliation;
+- run timestamp;
+- build timestamp and build configuration;
+- compiler and C++ standard;
+- platform and host/computer name;
+- numerical integration method;
+- run mode, chaos indicator, and mathematical formalism;
+- output-schedule information;
+- the exact commented copy of the input file;
+- a description of the numerical output columns.
+
+A typical header begins with information such as
 
 ```text
-# Arch of Chaos 1.6.0
+# ==============================================================================
+# Arch of Chaos
+# ==============================================================================
+#
+# Program information
+# -------------------
+# program          : Arch of Chaos
+# version          : 1.7.0
+# ...
+# numerical method : RKF54 - adaptive Runge-Kutta-Fehlberg 5(4)
+# run mode         : INDICATOR
+# indicator        : FLI
+# formalism        : NEWTONIAN
+# output schedule  : logarithmic
+# first output     : 0.0001 day
+# points/decade    : 9
 ```
 
----
+The complete input file follows in a commented `BEGIN INPUT FILE` / `END INPUT FILE` block. A final `DATA` section marks the start of the numerical table.
+
+## Numerical formatting
+
+Numerical data are written using centralized formatting with scientific notation, explicit signs, consistent field widths, and high precision.
 
 ## ORBIT output
 
-ORBIT mode writes a time series of the dynamical state.
+ORBIT mode writes a time series of the dynamical state. Physical output times are expressed in days. ORBIT uses a linear output schedule controlled by
 
-The exact columns depend on the current output implementation and mathematical formalism, but the physical output times are expressed in days.
+```text
+output_dt = ...
+```
 
----
+The reproducibility header records this as a linear output schedule together with the selected interval.
 
 ## INDICATOR output
 
-FLI example:
+INDICATOR mode writes a two-column time series containing the physical epoch and the selected chaos indicator.
+
+FLI table:
 
 ```text
-# Arch of Chaos 1.6.0
-t [day]           FLI
+t [day]           FLI [-]
 ...
 ```
 
-LCI example:
+LCI table:
 
 ```text
-# Arch of Chaos 1.6.0
 t [day]           LCI [1/day]
 ...
 ```
 
----
+The first output time is `t0 + output_first`. Subsequent outputs follow the logarithmic schedule defined by `output_points_per_decade`. The final integration point is always included.
 
 ## GRID output
 
-GRID columns follow the input grid-axis order.
+GRID mode writes one final indicator value for every grid point. The grid-coordinate columns follow the input grid-axis order.
 
 Example for an `(a,M)` map:
 
 ```text
-# Arch of Chaos 1.6.0
 a [AU]            M [deg]           LCI [1/day]
 4.8000000000e+00  3.0000000000e+01  2.0686669529e-03
 4.8040000000e+00  3.0000000000e+01  2.0669752898e-03
@@ -883,12 +983,11 @@ a [AU]            M [deg]           LCI [1/day]
 Example for an `(a,e)` FLI map:
 
 ```text
-# Arch of Chaos 1.6.0
-a [AU]            e [-]             FLI
+a [AU]            e [-]             FLI [-]
 ...
 ```
 
-The output is written in scientific notation with high numerical precision.
+For GRID mode the header reports the output schedule as `final value only`.
 
 ---
 
@@ -952,24 +1051,24 @@ grid = M 30 330 30
 
 ## ORBIT / INDICATOR naming
 
-ORBIT and INDICATOR use a common time-series naming scheme.
+ORBIT and INDICATOR use a common time-series naming framework, but the output-schedule part reflects the selected run mode.
 
-ORBIT example:
+ORBIT retains the linear `_dt-<value>` notation. Example:
 
 ```text
 ORBIT_NEWTONIAN_nP-100_dt-10_a2-5.2026_a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
 ```
 
-LCI example:
+INDICATOR uses `_log-<first>-N<points>` to record the logarithmic schedule. LCI example:
 
 ```text
-LCI_NEWTONIAN_nP-100_dt-10_a2-5.2026_a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
+LCI_NEWTONIAN_nP-100_log-0.0001-N9_a2-5.2026_a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
 ```
 
 FLI example:
 
 ```text
-FLI_HAMILTONIAN_T-1000_dt-10_a2-5.2026_a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
+FLI_HAMILTONIAN_T-1000_log-1-N9_a2-5.2026_a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
 ```
 
 If an explicit output is supplied,
@@ -1037,7 +1136,8 @@ a2 = 5.2026
 t0 = 0.0
 T = 1000.0
 
-output_dt = 10.0
+output_first = 1.0e-4
+output_points_per_decade = 9
 
 relTol = 1.0e-6
 absTol = 1.0e-10
@@ -1287,7 +1387,29 @@ point 2 : a[0]=3  e[1]=0.1  M[0]=0
 
 ## Generalized GRID integration
 
-Small `(a,e)` FLI and LCI maps have been successfully computed with the generalized GRID implementation.
+Small `(a,e)` FLI and LCI maps have been successfully computed with the generalized GRID implementation. A 100-year `(a,e)` FLI grid with 201201 initial conditions has also been completed successfully.
+
+## Logarithmic INDICATOR scheduling
+
+The logarithmic output scheduler has been verified with both default-style and non-default sampling densities, including
+
+```text
+output_first = 1.0e-4
+output_points_per_decade = 9
+```
+
+and
+
+```text
+output_first = 1.0e-4
+output_points_per_decade = 5
+```
+
+Tests verified decade transitions, non-scheduled final-time output, and the absence of duplicated output when the final time coincides with a scheduled point.
+
+## Reproducibility output
+
+Development tests verified the complete reproducibility header, embedded input-file copy, output-column description, output schedule metadata, and automatic INDICATOR filename generation.
 
 ---
 
@@ -1299,8 +1421,18 @@ The exact repository layout may evolve, but the current code is organized around
 main.cpp
     command line
     run control
-    output stream
+    output stream selection
     automatic output-file naming
+
+io.h / io.cpp
+    reproducibility headers
+    input-file copy
+    output-column descriptions
+    numerical table formatting
+
+time_utils.h / time_utils.cpp
+    logarithmic INDICATOR output scheduling
+    time-related utilities
 
 init_data.h / init_data.cpp
     input parsing
@@ -1339,10 +1471,10 @@ The codebase uses Doxygen-style comments for public functions, classes, and impo
 
 # Known limitations
 
-The current implementation has the following important limitations.
+Version 1.7.0 currently has the following important limitations.
 
 - The dynamical model is **planar**, not spatial.
-- Inclination is therefore constrained to zero by the CRTBP2D validation.
+- Inclination is restricted to the numerical planar range `0 <= i < PLANAR_EPS` by the CRTBP2D validation.
 - RLI is not yet implemented.
 - GRID output is a flat table; multidimensional visualization is currently handled externally.
 - The provided heatmap plotting utility is intended for exactly two grid axes.
@@ -1355,29 +1487,31 @@ The current implementation has the following important limitations.
 
 # Reproducibility recommendations
 
-For research calculations, keep together:
+Version 1.7.0 writes the information required to reconstruct a run directly into every numerical output file. The header contains the exact input-file copy together with program, build, compiler, platform, host, model, and output-structure metadata.
+
+For research calculations, it is still recommended to keep together:
 
 ```text
 input file
 output file
-program version
-compiler/build configuration
+program source/version or Git tag
 plotting script version
 ```
 
-The automatically generated output file names are intended to make result directories more self-describing, but the **input file remains the authoritative record of the run configuration**.
+The automatically generated output file names make result directories more self-describing, while the embedded input-file copy provides the authoritative parameter record inside the numerical result itself.
 
-For published results, it is recommended to record at least:
+For published results, record at least:
 
-- Arch of Chaos version;
+- Arch of Chaos version or Git tag;
 - mathematical formalism;
 - masses and `a2`;
-- grid definition;
 - integration-duration convention;
+- output schedule;
+- grid definition, if applicable;
 - numerical tolerances;
 - initial deviation vector;
 - fixed orbital elements;
-- compiler/build information.
+- compiler/build/platform information.
 
 ---
 
@@ -1387,7 +1521,6 @@ For a public GitHub repository, the following files would be useful in addition 
 
 ```text
 LICENSE
-CHANGELOG.md
 CITATION.cff
 CONTRIBUTING.md
 examples/
@@ -1398,7 +1531,7 @@ tests/
 In particular:
 
 - `LICENSE` should explicitly define redistribution/use conditions;
-- `CHANGELOG.md` can summarize changes between versions;
+- `CHANGELOG.md` records the implemented changes between documented versions;
 - `CITATION.cff` can provide a standard citation entry for scientific use;
 - `examples/` can contain small ORBIT, INDICATOR, and GRID inputs;
 - `scripts/` can contain the Python heatmap utility;
@@ -1406,17 +1539,25 @@ In particular:
 
 ---
 
-# Releases and version history
+# Version
 
-This `README.md` documents the current state of the repository rather than a single fixed release.
-
-Release-specific changes are recorded in [`CHANGELOG.md`](CHANGELOG.md), while Git tags and GitHub Releases preserve the exact source and README corresponding to each published version.
-
-Recommended release tags follow the form
+This README describes the feature set developed for
 
 ```text
-v1.5.0
-v1.6.0
-...
+Arch of Chaos 1.7.0
 ```
 
+including:
+
+- generalized multidimensional orbital-element grids;
+- fixed/grid source validation;
+- periodic angular endpoint handling;
+- FLI and LCI calculations in INDICATOR and GRID modes;
+- Newtonian and Hamiltonian formulations;
+- `T` and `nPeriods` duration input;
+- `tau` and `M` orbital-phase input;
+- automatic parameter-based output-file naming;
+- logarithmic INDICATOR output scheduling;
+- reproducibility headers with embedded input files;
+- centralized numerical output formatting and column descriptions;
+- compiler, platform, build, and host metadata in numerical outputs.

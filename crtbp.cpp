@@ -1,4 +1,5 @@
 #include "crtbp.h"       // CRTBP2D class
+#include "io.h"          // Common numerical output formatting
 #include "math_utils.h"  // astro::sqr
 
 #include <cmath>      // std::sqrt
@@ -269,14 +270,9 @@ void CRTBP2D::varFunHamiltonian(double t, const double *y, double *dydt, void *p
 
 void CRTBP2D::printState(std::ostream &os, double t, const double *y) const
 {
-    constexpr int W         = 18;
-    constexpr int precision = 10;
-
-    os << std::scientific << std::showpos << std::setprecision(precision);
-
-    os << std::setw(W) << t;
+    os << std::setw(io::DATA_FIELD_WIDTH) << t;
     for (std::size_t i = 0; i < getNVar(); ++i) {
-        os << std::setw(W) << y[i];
+        os << std::setw(io::DATA_FIELD_WIDTH) << y[i];
     }
 
     os << '\n';

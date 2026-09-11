@@ -152,6 +152,7 @@
     <ClCompile Include="crtbp.cpp" />
     <ClCompile Include="grid.cpp" />
     <ClCompile Include="init_data.cpp" />
+    <ClCompile Include="io.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="model.cpp" />
   </ItemGroup>
@@ -164,6 +165,7 @@
     <ClInclude Include="crtbp.h" />
     <ClInclude Include="grid.h" />
     <ClInclude Include="init_data.h" />
+    <ClInclude Include="io.h" />
     <ClInclude Include="model.h" />
     <ClInclude Include="version.h" />
   </ItemGroup>

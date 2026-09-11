@@ -11,30 +11,27 @@
 #include <stdexcept>  // std::runtime_error
 #include <string>     // std::string
 
-namespace {
-    /**
-     * @brief Returns the name of a run mode.
-     *
-     * @param mode Run mode.
-     * @return Name of the run mode.
-     */
-    const char *runModeToString(RunMode mode) noexcept
-    {
-        switch (mode) {
-            case RunMode::ORBIT:
-                return "ORBIT";
+/**
+ * @brief Returns the name of a run mode.
+ *
+ * @param mode Run mode.
+ * @return Name of the run mode.
+ */
+const char *runModeToString(RunMode mode) noexcept
+{
+    switch (mode) {
+        case RunMode::ORBIT:
+            return "ORBIT";
 
-            case RunMode::INDICATOR:
-                return "INDICATOR";
+        case RunMode::INDICATOR:
+            return "INDICATOR";
 
-            case RunMode::GRID:
-                return "GRID";
-        }
-
-        return "UNKNOWN";
+        case RunMode::GRID:
+            return "GRID";
     }
 
-}  // namespace
+    return "UNKNOWN";
+}
 
 InitData::InitData(const std::string &file_name)
 {
@@ -191,8 +188,8 @@ void InitData::parseLine(const std::string &line)
 
     if (key == "grid") {
         std::istringstream is(value);
-        std::string element_name;
-        GridAxis    axis{};
+        std::string        element_name;
+        GridAxis           axis{};
 
         is >> element_name >> axis.min >> axis.max >> axis.nIntervals;
 
@@ -224,8 +221,7 @@ void InitData::parseLine(const std::string &line)
     } else if (key == "t0") {
         is >> t0_;
 
-    }
-    else if (key == "T") {
+    } else if (key == "T") {
         if (integration_duration_input_ == IntegrationDurationInput::ORBITAL_PERIODS) {
             throw std::runtime_error("T and nPeriods cannot be specified simultaneously.");
         }
@@ -239,6 +235,10 @@ void InitData::parseLine(const std::string &line)
         integration_duration_input_ = IntegrationDurationInput::ORBITAL_PERIODS;
     } else if (key == "output_dt") {
         is >> output_dt_;
+    } else if (key == "output_first") {
+        is >> output_first_;
+    } else if (key == "output_points_per_decade") {
+        is >> output_points_per_decade_;
     } else if (key == "a") {
         registerFixedOrbitalElement(OrbitalElement::SEMIMAJOR_AXIS);
         is >> elements_.a;
@@ -447,25 +447,30 @@ void InitData::validate() const
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
 
-            if (std::abs(elements_.i) > PLANAR_EPS) {
-                throw std::runtime_error("CRTBP2D requires inclination i = 0.");
+            if (elements_.i < 0.0 || elements_.i >= PLANAR_EPS) {
+                throw std::runtime_error("CRTBP2D requires inclination 0 <= i < PLANAR_EPS.");
             }
 
             break;
 
         case RunMode::INDICATOR:
+            // INDICATOR mode requires a chaos indicator.
             if (indicator_ == Model::IndicatorType::NONE) {
                 throw std::runtime_error("INDICATOR mode requires an indicator.");
             }
 
-            if (orbital_phase_input_ == OrbitalPhaseInput::NONE) {
-                throw std::runtime_error("INDICATOR mode requires either tau or M.");
+            // The first logarithmic output time is an elapsed physical time
+            // measured from the initial epoch and must therefore be positive.
+            if (output_first_ <= 0.0) {
+                throw std::runtime_error("INDICATOR mode requires output_first > 0.");
             }
 
-            if (output_dt_ <= 0.0) {
-                throw std::runtime_error("INDICATOR mode requires output_dt > 0.");
+            // At least one output point must be written in each time decade.
+            if (output_points_per_decade_ == 0) {
+                throw std::runtime_error("INDICATOR mode requires output_points_per_decade > 0.");
             }
 
+            // Validate the initial osculating orbit.
             if (elements_.a <= 0.0) {
                 throw std::runtime_error("Semimajor axis must be greater than zero.");
             }
@@ -474,8 +479,8 @@ void InitData::validate() const
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
 
-            if (std::abs(elements_.i) > PLANAR_EPS) {
-                throw std::runtime_error("CRTBP2D requires inclination i = 0.");
+            if (elements_.i < 0.0 || elements_.i >= PLANAR_EPS) {
+                throw std::runtime_error("CRTBP2D requires inclination 0 <= i < PLANAR_EPS.");
             }
 
             break;
@@ -541,8 +546,8 @@ void InitData::validate() const
 
                     case OrbitalElement::INCLINATION:
                         // Grid angular values are still stored in degrees here.
-                        if (std::abs(axis.min) > PLANAR_EPS || std::abs(axis.max) > PLANAR_EPS) {
-                            throw std::runtime_error("CRTBP2D currently requires inclination i = 0.");
+                        if (axis.min < 0.0 || axis.max >= PLANAR_EPS) {
+                            throw std::runtime_error("CRTBP2D currently requires inclination 0 <= i < PLANAR_EPS.");
                         }
                         break;
 
@@ -605,8 +610,8 @@ void InitData::validate() const
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
 
-            if (!hasI && std::abs(elements_.i) > PLANAR_EPS) {
-                throw std::runtime_error("CRTBP2D requires inclination i = 0.");
+            if (!hasI && (elements_.i < 0.0 || elements_.i >= PLANAR_EPS)) {
+                throw std::runtime_error("CRTBP2D requires inclination 0 <= i < PLANAR_EPS.");
             }
 
             break;

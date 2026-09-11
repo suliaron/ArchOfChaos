@@ -22,6 +22,15 @@ enum class RunMode {
 };
 
 /**
+ * @brief Returns the textual representation of a run mode.
+ *
+ * @param mode Run mode.
+ *
+ * @return Name of the run mode.
+ */
+const char *runModeToString(RunMode mode) noexcept;
+
+/**
  * @brief Stores, parses, and validates program initialization data.
  *
  * Reads the initialization parameters from an input file, converts textual
@@ -157,6 +166,26 @@ class InitData {
     double getOutputDt() const noexcept
     {
         return output_dt_;
+    }
+
+/**
+     * @brief Returns the first elapsed output time for INDICATOR mode.
+     *
+     * @return First elapsed indicator-output time [day].
+     */
+    double getOutputFirst() const noexcept
+    {
+        return output_first_;
+    }
+
+    /**
+     * @brief Returns the number of indicator-output points per time decade.
+     *
+     * @return Number of output points per decade.
+     */
+    std::size_t getOutputPointsPerDecade() const noexcept
+    {
+        return output_points_per_decade_;
     }
 
     /** @return Initial osculating orbital elements. */
@@ -489,8 +518,30 @@ class InitData {
     double T_ = 0.0;
     /// Number of initial Keplerian orbital periods of P3.
     double n_periods_ = 0.0;
-    /// Physical output time interval [day].
+    /**
+     * @brief Output interval for ORBIT mode [day].
+     */
     double output_dt_ = 0.0;
+
+    /**
+     * @brief First elapsed output time for INDICATOR mode [day].
+     *
+     * For example, a value of 1.0e-4 with 9 points per decade produces
+     *
+     *     1e-4, 2e-4, ..., 9e-4, 1e-3, 2e-3, ...
+     */
+    double output_first_ = 1.0;
+
+    /**
+     * @brief Number of indicator-output points in each time decade.
+     *
+     * The default value 9 produces the sequence
+     *
+     *     1, 2, ..., 9
+     *
+     * times the current decade scale.
+     */
+    std::size_t output_points_per_decade_ = 9;
 
     /// Method used to specify the integration duration.
     IntegrationDurationInput integration_duration_input_ = IntegrationDurationInput::NONE;
