@@ -31,6 +31,26 @@ enum class RunMode {
 const char *runModeToString(RunMode mode) noexcept;
 
 /**
+ * @brief Direction of numerical time integration.
+ */
+enum class IntegrationDirection {
+    FORWARD,  ///< Integration toward increasing time.
+    BACKWARD  ///< Integration toward decreasing time.
+};
+
+/**
+ * @brief Returns the numerical sign corresponding to an integration direction.
+ *
+ * @param direction Integration direction.
+ *
+ * @return +1.0 for forward integration and -1.0 for backward integration.
+ */
+constexpr double integrationDirectionSign(IntegrationDirection direction)
+{
+    return direction == IntegrationDirection::FORWARD ? 1.0 : -1.0;
+}
+
+/**
  * @brief Stores, parses, and validates program initialization data.
  *
  * Reads the initialization parameters from an input file, converts textual
@@ -96,6 +116,19 @@ class InitData {
     RunMode getRunMode() const noexcept
     {
         return run_mode_;
+    }
+
+    /**
+     * @brief Returns the direction of numerical time integration.
+     *
+     * The direction is determined from the sign of the selected
+     * integration-duration input.
+     *
+     * @return Integration direction.
+     */
+    IntegrationDirection getIntegrationDirection() const
+    {
+        return integration_direction_;
     }
 
     /** @return Selected chaos indicator. */
@@ -168,7 +201,7 @@ class InitData {
         return output_dt_;
     }
 
-/**
+    /**
      * @brief Returns the first elapsed output time for INDICATOR mode.
      *
      * @return First elapsed indicator-output time [day].
@@ -504,9 +537,10 @@ class InitData {
      */
     static Model::Formalism parseFormalism(const std::string &text);
 
-    RunMode              run_mode_  = RunMode::ORBIT;
-    Model::Formalism     formalism_ = Model::Formalism::NEWTONIAN;
-    Model::IndicatorType indicator_ = Model::IndicatorType::NONE;
+    RunMode              run_mode_              = RunMode::ORBIT;
+    IntegrationDirection integration_direction_ = IntegrationDirection::FORWARD;
+    Model::Formalism     formalism_             = Model::Formalism::NEWTONIAN;
+    Model::IndicatorType indicator_             = Model::IndicatorType::NONE;
 
     double m1_ = 0.0;
     double m2_ = 0.0;

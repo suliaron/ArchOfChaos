@@ -33,6 +33,26 @@ const char *runModeToString(RunMode mode) noexcept
     return "UNKNOWN";
 }
 
+/**
+ * @brief Returns the textual representation of an integration direction.
+ *
+ * @param direction Integration direction.
+ *
+ * @return "FORWARD" for forward integration and "BACKWARD" for backward integration.
+ */
+constexpr const char *integrationDirectionToString(IntegrationDirection direction)
+{
+    switch (direction) {
+        case IntegrationDirection::FORWARD:
+            return "FORWARD";
+
+        case IntegrationDirection::BACKWARD:
+            return "BACKWARD";
+    }
+
+    return "UNKNOWN";
+}
+
 InitData::InitData(const std::string &file_name)
 {
     std::ifstream file(file_name);
@@ -211,63 +231,88 @@ void InitData::parseLine(const std::string &line)
 
     if (key == "m1") {
         is >> m1_;
-
-    } else if (key == "m2") {
+    }
+    else if (key == "m2") {
         is >> m2_;
-
-    } else if (key == "a2") {
+    }
+    else if (key == "a2") {
         is >> a2_;
-
-    } else if (key == "t0") {
+    }
+    else if (key == "t0") {
         is >> t0_;
-
-    } else if (key == "T") {
+    }
+    else if (key == "T") {
         if (integration_duration_input_ == IntegrationDurationInput::ORBITAL_PERIODS) {
             throw std::runtime_error("T and nPeriods cannot be specified simultaneously.");
         }
+
         is >> T_;
+        if (T_ > 0.0) {
+            integration_direction_ = IntegrationDirection::FORWARD;
+        }
+        else if (T_ < 0.0) {
+            integration_direction_ = IntegrationDirection::BACKWARD;
+        }
         integration_duration_input_ = IntegrationDurationInput::PHYSICAL_TIME;
-    } else if (key == "nPeriods") {
+    }
+    else if (key == "nPeriods") {
         if (integration_duration_input_ == IntegrationDurationInput::PHYSICAL_TIME) {
             throw std::runtime_error("T and nPeriods cannot be specified simultaneously.");
         }
+
         is >> n_periods_;
+        if (n_periods_ > 0.0) {
+            integration_direction_ = IntegrationDirection::FORWARD;
+        }
+        else if (n_periods_ < 0.0) {
+            integration_direction_ = IntegrationDirection::BACKWARD;
+        }
         integration_duration_input_ = IntegrationDurationInput::ORBITAL_PERIODS;
-    } else if (key == "output_dt") {
+    }
+    else if (key == "output_dt") {
         is >> output_dt_;
-    } else if (key == "output_first") {
+    }
+    else if (key == "output_first") {
         is >> output_first_;
-    } else if (key == "output_points_per_decade") {
+    }
+    else if (key == "output_points_per_decade") {
         is >> output_points_per_decade_;
-    } else if (key == "a") {
+    }
+    else if (key == "a") {
         registerFixedOrbitalElement(OrbitalElement::SEMIMAJOR_AXIS);
         is >> elements_.a;
-    } else if (key == "e") {
+    }
+    else if (key == "e") {
         registerFixedOrbitalElement(OrbitalElement::ECCENTRICITY);
         is >> elements_.e;
-    } else if (key == "i") {
+    }
+    else if (key == "i") {
         registerFixedOrbitalElement(OrbitalElement::INCLINATION);
         double value_deg = 0.0;
         is >> value_deg;
         elements_.i = astro::toRad(value_deg);
-    } else if (key == "omega") {
+    }
+    else if (key == "omega") {
         registerFixedOrbitalElement(OrbitalElement::ARGUMENT_OF_PERICENTER);
         double value_deg = 0.0;
         is >> value_deg;
         elements_.omega = astro::toRad(value_deg);
-    } else if (key == "Omega") {
+    }
+    else if (key == "Omega") {
         registerFixedOrbitalElement(OrbitalElement::LONGITUDE_OF_ASCENDING_NODE);
         double value_deg = 0.0;
         is >> value_deg;
         elements_.Omega = astro::toRad(value_deg);
-    } else if (key == "tau") {
+    }
+    else if (key == "tau") {
         if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
             throw std::runtime_error("Both tau and M are specified. Use only one.");
         }
         registerFixedOrbitalElement(OrbitalElement::PERICENTER_TIME);
         is >> elements_.tau;
         orbital_phase_input_ = OrbitalPhaseInput::TAU;
-    } else if (key == "M") {
+    }
+    else if (key == "M") {
         if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
             throw std::runtime_error("Both tau and M are specified. Use only one.");
         }
@@ -276,31 +321,44 @@ void InitData::parseLine(const std::string &line)
         is >> value_deg;
         mean_anomaly_        = astro::toRad(value_deg);
         orbital_phase_input_ = OrbitalPhaseInput::MEAN_ANOMALY;
-    } else if (key == "a0") {
+    }
+    else if (key == "a0") {
         is >> a0_;
-    } else if (key == "a1") {
+    }
+    else if (key == "a1") {
         is >> a1_;
-    } else if (key == "Na") {
+    }
+    else if (key == "Na") {
         is >> Na_;
-    } else if (key == "e0") {
+    }
+    else if (key == "e0") {
         is >> e0_;
-    } else if (key == "e1") {
+    }
+    else if (key == "e1") {
         is >> e1_;
-    } else if (key == "Ne") {
+    }
+    else if (key == "Ne") {
         is >> Ne_;
-    } else if (key == "dy1") {
+    }
+    else if (key == "dy1") {
         is >> dy_[0];
-    } else if (key == "dy2") {
+    }
+    else if (key == "dy2") {
         is >> dy_[1];
-    } else if (key == "dy3") {
+    }
+    else if (key == "dy3") {
         is >> dy_[2];
-    } else if (key == "dy4") {
+    }
+    else if (key == "dy4") {
         is >> dy_[3];
-    } else if (key == "relTol") {
+    }
+    else if (key == "relTol") {
         is >> rel_tol_;
-    } else if (key == "absTol") {
+    }
+    else if (key == "absTol") {
         is >> abs_tol_;
-    } else {
+    }
+    else {
         throw std::runtime_error("Unknown keyword: " + key);
     }
 
@@ -399,22 +457,26 @@ void InitData::validate() const
     if (a2_ <= 0.0) {
         throw std::runtime_error("a2 must be greater than zero.");
     }
+    // ---------------------------------------------------------------------
     // Integration duration.
-    switch (integration_duration_input_) {
-        case IntegrationDurationInput::PHYSICAL_TIME:
-            if (T_ <= 0.0) {
-                throw std::runtime_error("Integration duration T must be greater than zero.");
-            }
-            break;
+    // ---------------------------------------------------------------------
 
-        case IntegrationDurationInput::ORBITAL_PERIODS:
-            if (n_periods_ <= 0.0) {
-                throw std::runtime_error("nPeriods must be greater than zero.");
-            }
-            break;
-
-        case IntegrationDurationInput::NONE:
-            throw std::runtime_error("Either T or nPeriods must be specified.");
+    if (usesPhysicalIntegrationTime()) {
+        // T is a physical integration duration [day].
+        // Its sign determines the integration direction.
+        if (T_ == 0.0) {
+            throw std::runtime_error("Physical integration duration T must be non-zero.");
+        }
+    }
+    else if (usesOrbitalPeriods()) {
+        // nPeriods specifies the number of initial Keplerian orbital periods.
+        // Its sign determines the integration direction.
+        if (n_periods_ == 0.0) {
+            throw std::runtime_error("nPeriods must be non-zero.");
+        }
+    }
+    else {
+        throw std::runtime_error("Unknown integration-duration input mode.");
     }
 
     if (rel_tol_ <= 0.0) {
@@ -687,17 +749,21 @@ void InitData::print(std::ostream &os) const
     os << "run mode      : " << runModeToString(run_mode_) << '\n';
     os << "indicator     : " << Model::indicatorTypeToString(indicator_) << '\n';
     os << "formalism     : " << Model::formalismToString(formalism_) << '\n';
+    os << "direction     : " << integrationDirectionToString(getIntegrationDirection()) << '\n';
 
     // Orbital-phase input.
     if (run_mode_ == RunMode::GRID) {
         if (hasGridAxis(OrbitalElement::MEAN_ANOMALY)) {
             os << "phase input   : GRID(M)\n";
-        } else if (hasGridAxis(OrbitalElement::PERICENTER_TIME)) {
+        }
+        else if (hasGridAxis(OrbitalElement::PERICENTER_TIME)) {
             os << "phase input   : GRID(tau)\n";
-        } else {
+        }
+        else {
             os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
         }
-    } else {
+    }
+    else {
         os << "phase input   : " << orbitalPhaseInputToString(orbital_phase_input_) << '\n';
     }
 
@@ -744,7 +810,8 @@ void InitData::print(std::ostream &os) const
         os << "Omega         : " << std::setw(W) << elements_.Omega << " [rad]\n";
         if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
             os << "tau           : " << std::setw(W) << elements_.tau << " [day]\n";
-        } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+        }
+        else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
             os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
         }
     }
@@ -774,8 +841,8 @@ void InitData::print(std::ostream &os) const
         if (!hasGridAxis(OrbitalElement::PERICENTER_TIME) && !hasGridAxis(OrbitalElement::MEAN_ANOMALY)) {
             if (orbital_phase_input_ == OrbitalPhaseInput::TAU) {
                 os << "tau           : " << std::setw(W) << elements_.tau << " [day]\n";
-
-            } else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
+            }
+            else if (orbital_phase_input_ == OrbitalPhaseInput::MEAN_ANOMALY) {
                 os << "M             : " << std::setw(W) << mean_anomaly_ << " [rad]\n";
             }
         }
@@ -854,7 +921,8 @@ void InitData::print(std::ostream &os) const
 //     if (run_mode_ == RunMode::GRID) {
 //         os << "grid axes     : " << grid_axes_.size() << '\n';
 //
-//         os << std::left << std::setw(16) << " " << std::setw(10) << "element" << std::right << std::setw(W) << "min"
+//         os << std::left << std::setw(16) << " " << std::setw(10) << "element" << std::right << std::setw(W) <<
+//         "min"
 //            << std::setw(W) << "max" << std::setw(W) << "intervals" << '\n';
 //
 //         for (const GridAxis &axis : grid_axes_) {

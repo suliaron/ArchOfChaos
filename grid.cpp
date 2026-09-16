@@ -142,24 +142,10 @@ bool isFullPeriod(const GridAxis &axis) noexcept
     return std::abs(axis.min) <= ANGLE_EPS && std::abs(axis.max - FULL_PERIOD_DEG) <= ANGLE_EPS;
 }
 
-GridIterator::GridIterator(double a0, double a1, std::uint32_t Na, double e0, double e1, std::uint32_t Ne)
-    : a0_(a0), e0_(e0), Na_(Na), Ne_(Ne), ia_(0), ie_(0), da_(0.0), de_(0.0)
-{
-    if (Na_ == 0) {
-        throw std::invalid_argument("Number of semimajor-axis intervals must be greater than zero.");
-    }
-
-    if (Ne_ == 0) {
-        throw std::invalid_argument("Number of eccentricity intervals must be greater than zero.");
-    }
-
-    da_ = (a1 - a0_) / static_cast<double>(Na_);
-    de_ = (e1 - e0_) / static_cast<double>(Ne_);
-
-    currentPoint_ = 0;
-}
-
-GridIterator::GridIterator(const std::vector<GridAxis> &axes) : axes_(axes), indices_(axes.size(), 0), currentPoint_(0)
+GridIterator::GridIterator(const std::vector<GridAxis> &axes) :
+    axes_(axes),
+    indices_(axes.size(), 0),
+    currentPoint_(0)
 {
 }
 
@@ -220,9 +206,6 @@ std::size_t GridIterator::getTotalPointCount() const
 
         return total;
     }
-
-    // Legacy two-dimensional (a,e) grid.
-    return (static_cast<std::size_t>(Na_) + 1) * (static_cast<std::size_t>(Ne_) + 1);
 }
 
 bool GridIterator::hasAxis(OrbitalElement element) const noexcept
@@ -275,27 +258,11 @@ void GridIterator::apply(astro::OrbitalElements &elements) const
     }
 }
 
-double GridIterator::a() const noexcept
-{
-    return a0_ + static_cast<double>(ia_) * da_;
-}
-
-double GridIterator::e() const noexcept
-{
-    return e0_ + static_cast<double>(ie_) * de_;
-}
-
-std::string GridIterator::header() const
-{
-    return "  a         e";
-}
-
 bool GridIterator::next()
 {
     // ---------------------------------------------------------------------
     // General multidimensional grid.
     // ---------------------------------------------------------------------
-
     if (!axes_.empty()) {
         for (std::size_t axisIndex = 0; axisIndex < indices_.size(); ++axisIndex) {
             const std::size_t pointCount = getPointCount(axisIndex);
@@ -318,31 +285,6 @@ bool GridIterator::next()
         // last point of the multidimensional grid.
         return false;
     }
-
-    // ---------------------------------------------------------------------
-    // Legacy two-dimensional (a,e) grid.
-    //
-    // This branch is kept temporarily until runGrid() is converted to the
-    // general GridAxis-based interface.
-    // ---------------------------------------------------------------------
-
-    if (ia_ < Na_) {
-        ++ia_;
-        ++currentPoint_;
-
-        return true;
-    }
-
-    ia_ = 0;
-
-    if (ie_ < Ne_) {
-        ++ie_;
-        ++currentPoint_;
-
-        return true;
-    }
-
-    return false;
 }
 
 void GridIterator::printProgress(std::ostream &os) const

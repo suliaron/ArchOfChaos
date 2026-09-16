@@ -103,7 +103,6 @@ struct StepControl {
     double h     = 0.0;  ///< Current integration step size.
     double h_nxt = 0.0;  ///< Proposed step size for the next step.
     double h_did = 0.0;  ///< Accepted step size of the current step.
-    double h_max = 0.0;  ///< Maximum allowed step size.
     double h_min = 0.0;  ///< Minimum allowed step size.
 
     uint32_t n_int = 0;  ///< Number of integration steps taken.
@@ -186,7 +185,7 @@ namespace ode_integrator {
                 for (std::size_t k = 0; k < 7; ++k) {
                     y_out[n] += step.h * Bi[k] * dy[k * n_var + n];
                 }
-                const var_t err = step.h * std::fabs(dy[5 * n_var + n] - dy[6 * n_var + n]) / 60.0;
+                const var_t err = std::abs(step.h) * std::fabs(dy[5 * n_var + n] - dy[6 * n_var + n]) / 60.0;
                 const var_t tol = absTol + relTol * std::max(std::fabs(y_in[n]), std::fabs(y_out[n]));
 
                 if (err / tol > temax) {
@@ -266,7 +265,8 @@ namespace {
         // ---------------------------------------------------------------------
         if (init.getRunMode() == RunMode::ORBIT) {
             name << "ORBIT";
-        } else {
+        }
+        else {
             name << Model::indicatorTypeToString(init.getIndicator());
         }
 
@@ -280,9 +280,11 @@ namespace {
         // ---------------------------------------------------------------------
         if (init.usesPhysicalIntegrationTime()) {
             name << "_T-" << filenameNumber(init.getT());
-        } else if (init.usesOrbitalPeriods()) {
+        }
+        else if (init.usesOrbitalPeriods()) {
             name << "_nP-" << filenameNumber(init.getNPeriods());
-        } else {
+        }
+        else {
             throw std::runtime_error("Unknown integration-duration input mode.");
         }
 
@@ -292,8 +294,8 @@ namespace {
         if (init.getRunMode() == RunMode::ORBIT) {
             // Linear output interval for orbit integration.
             name << "_dt-" << filenameNumber(init.getOutputDt());
-
-        } else {
+        }
+        else {
             // Logarithmic output schedule for chaos indicators.
             name << "_log-" << filenameNumber(init.getOutputFirst()) << "-N" << init.getOutputPointsPerDecade();
         }
@@ -318,9 +320,11 @@ namespace {
         // ---------------------------------------------------------------------
         if (init.usesFixedTau()) {
             name << "_tau-" << filenameNumber(elements.tau);
-        } else if (init.usesFixedMeanAnomaly()) {
+        }
+        else if (init.usesFixedMeanAnomaly()) {
             name << "_M-" << filenameNumber(astro::toDeg(init.getMeanAnomaly()));
-        } else {
+        }
+        else {
             throw std::runtime_error("Unknown orbital-phase input mode.");
         }
 
@@ -383,11 +387,11 @@ namespace {
         // ---------------------------------------------------------------------
         if (init.usesPhysicalIntegrationTime()) {
             name << "_T-" << filenameNumber(init.getT());
-
-        } else if (init.usesOrbitalPeriods()) {
+        }
+        else if (init.usesOrbitalPeriods()) {
             name << "_nP-" << filenameNumber(init.getNPeriods());
-
-        } else {
+        }
+        else {
             throw std::runtime_error("Unknown integration-duration input mode.");
         }
 
@@ -432,8 +436,8 @@ namespace {
         if (!isGridAxis(OrbitalElement::PERICENTER_TIME) && !isGridAxis(OrbitalElement::MEAN_ANOMALY)) {
             if (init.usesFixedTau()) {
                 name << "_tau-" << filenameNumber(elements.tau);
-
-            } else if (init.usesFixedMeanAnomaly()) {
+            }
+            else if (init.usesFixedMeanAnomaly()) {
                 name << "_M-" << filenameNumber(astro::toDeg(init.getMeanAnomaly()));
             }
         }
@@ -477,8 +481,8 @@ namespace {
                 opt.input_file = p.filename().string();
                 opt.input_dir  = p.parent_path().string();
                 opt.input_path = p.string();
-
-            } else if (arg == "-o") {
+            }
+            else if (arg == "-o") {
                 if (++i >= argc) {
                     throw std::runtime_error("Missing argument after '-o'.");
                 }
@@ -488,17 +492,17 @@ namespace {
                 opt.output_file = p.filename().string();
                 opt.output_dir  = p.parent_path().string();
                 opt.output_path = p.string();
-
-            } else if (arg == "-h" || arg == "--help") {
+            }
+            else if (arg == "-h" || arg == "--help") {
                 opt.show_help = true;
-
-            } else if (arg == "-v" || arg == "--version") {
+            }
+            else if (arg == "-v" || arg == "--version") {
                 opt.show_version = true;
-
-            } else if (arg == "--verbose") {
+            }
+            else if (arg == "--verbose") {
                 opt.verbose = true;
-
-            } else {
+            }
+            else {
                 throw std::runtime_error("Unknown command-line option: " + arg);
             }
         }
@@ -532,7 +536,8 @@ namespace {
         // Use the explicitly specified output file if -o was given.
         if (!opt.output_path.empty()) {
             outputPath = opt.output_path;
-        } else {
+        }
+        else {
             // Generate the output file name automatically.
             switch (init.getRunMode()) {
                 case RunMode::ORBIT:
@@ -565,25 +570,23 @@ namespace {
 
         return &fout;
     }
-    /**
-     * @brief Limits the current integration step size.
-     *
-     * Ensures that the current step does not extend beyond the final
-     * integration time. If @c step.h_max is positive, the step size is
-     * also limited to the specified maximum value.
-     *
-     * @param t Current integration time.
-     * @param T Final integration time.
-     * @param step Step-size control parameters.
-     */
-    void limitStep(double t, double T, StepControl &step)
-    {
-        if (t + step.h > T) {
-            step.h = T - t;
-        }
 
-        if (step.h_max > 0.0 && step.h > step.h_max) {
-            step.h = step.h_max;
+    /**
+     * @brief Limits the current integration step to a target time.
+     *
+     * Ensures that the current integration step does not pass the specified
+     * target time. The function works for both forward and backward integration.
+     *
+     * @param t Current dimensionless integration time.
+     * @param targetTime Target dimensionless integration time.
+     * @param step Adaptive step-size control parameters.
+     */
+    void limitStep(double t, double targetTime, StepControl &step)
+    {
+        const double remaining = targetTime - t;
+
+        if (std::abs(step.h) > std::abs(remaining)) {
+            step.h = remaining;
         }
     }
 
@@ -610,75 +613,85 @@ namespace chaos_indicator {
     /**
      * @brief Computes the Fast Lyapunov Indicator from a deviation vector.
      *
-     * The FLI is defined as the maximum logarithmic norm of the deviation vector
-     * attained up to the current integration time:
+     * The FLI is defined as the maximum logarithmic growth of the deviation
+     * vector relative to its initial norm:
      *
-     * FLI(t) = max(FLI_previous, log(||delta y(t)||)).
+     * \f[
+     *     \mathrm{FLI}(t)
+     *     =
+     *     \max_{\tau \leq t}
+     *     \log_{10}
+     *     \left(
+     *         \frac{\|\delta(\tau)\|}
+     *              {\|\delta(t_0)\|}
+     *     \right).
+     * \f]
      *
-     * The deviation vector is stored in elements y[4], ..., y[7].
-     *
-     * @param y State vector containing the orbit and the deviation vector.
+     * @param dy Current deviation vector.
+     * @param n Number of components in the deviation vector.
      * @param previous_fli Largest FLI value obtained before the current step.
+     * @param norm_0 Initial norm of the deviation vector.
+     *
      * @return Updated FLI value.
      *
-     * @throws std::domain_error If the deviation-vector norm is zero.
+     * @throws std::domain_error If the current or initial deviation-vector
+     *         norm is zero.
      */
-    double computeFLI(const double *y, double previous_fli)
+    double computeFLI(const double *dy, std::size_t n, const double previous_fli, const double norm_0)
     {
-        const double norm = std::sqrt(astro::sqr(y[4]) + astro::sqr(y[5]) + astro::sqr(y[6]) + astro::sqr(y[7]));
+        const double norm = astro::norm(dy, n);
 
         if (norm == 0.0) {
             throw std::domain_error("Cannot compute FLI from a zero deviation vector.");
         }
 
-        return std::max(previous_fli, std::log(norm));
+        if (norm_0 == 0.0) {
+            throw std::domain_error("Cannot compute FLI from a zero initial deviation vector.");
+        }
+
+        return std::max(previous_fli, std::log(norm / norm_0));
     }
 
     /**
      * @brief Computes the Lyapunov Characteristic Indicator (LCI).
      *
-     * The current deviation vector is stored in elements y[4], ..., y[7].
-     * The initial deviation vector is stored in elements y0[0], ..., y0[3].
-     *
      * The LCI is calculated as
      *
      * \f[
-     * \mathrm{LCI}(t) =
-     * \frac{1}{t-t_0}
-     * \ln\left(
-     * \frac{\|\delta(t)\|}{\|\delta(t_0)\|}
-     * \right).
+     *     \mathrm{LCI}(t) = \frac{1}{|t-t_0|} \ln\left( \frac{\|\delta(t)\|}{\|\delta(t_0)\|} \right).
      * \f]
      *
-     * @param t Current integration time.
-     * @param t0 Initial integration time.
-     * @param y State vector containing the orbit and the current deviation vector.
-     * @param y0 Initial deviation vector with four components.
+     * @param t Current physical time.
+     * @param t0 Initial physical time.
+     * @param dy Current deviation vector.
+     * @param dy0 Initial deviation vector.
+     * @param n Number of components in the deviation vectors.
      *
-     * @return Current value of the Lyapunov Characteristic Indicator.
+     * @return Current LCI value.
      *
      * @throws std::domain_error If the elapsed time is zero or if either
      *         deviation-vector norm is zero.
      */
-    double computeLCI(double t, double t0, const double *y, const double *y0)
+    double computeLCI(double t, double t0, const double *dy, const double *dy0, std::size_t n)
     {
-        const double elapsed_time = t - t0;
+        const double elapsedTime = std::abs(t - t0);
 
-        if (elapsed_time == 0.0) {
+        if (elapsedTime == 0.0) {
             throw std::domain_error("Cannot compute LCI at the initial time.");
         }
 
-        const double initial_norm =
-            std::sqrt(astro::sqr(y0[0]) + astro::sqr(y0[1]) + astro::sqr(y0[2]) + astro::sqr(y0[3]));
+        const double initialNorm = astro::norm(dy0, n);
+        const double currentNorm = astro::norm(dy, n);
 
-        const double current_norm =
-            std::sqrt(astro::sqr(y[4]) + astro::sqr(y[5]) + astro::sqr(y[6]) + astro::sqr(y[7]));
+        if (initialNorm == 0.0) {
+            throw std::domain_error("Cannot compute LCI from a zero initial deviation vector.");
+        }
 
-        if (initial_norm == 0.0 || current_norm == 0.0) {
+        if (currentNorm == 0.0) {
             throw std::domain_error("Cannot compute LCI from a zero deviation vector.");
         }
 
-        return std::log(current_norm / initial_norm) / elapsed_time;
+        return std::log(currentNorm / initialNorm) / elapsedTime;
     }
 }  // namespace chaos_indicator
 
@@ -765,13 +778,39 @@ namespace print {
     }
 }  // namespace print
 
-StepControl createStepControl()
+/**
+ * @brief Creates the initial adaptive integration step-control parameters.
+ *
+ * The initial step size is chosen as a fixed fraction of the initial
+ * Keplerian orbital period of P3 and converted to dimensionless CRTBP time.
+ * Its sign is determined by the integration direction.
+ *
+ * @param a Semimajor axis of P3 [AU].
+ * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit
+ *              [AU^3/day^2].
+ * @param n Mean motion of the P1-P2 system [rad/day].
+ * @param direction Direction of numerical time integration.
+ *
+ * @return Initialized step-control parameters.
+ */
+StepControl createStepControl(double a, double mu_13, double n, IntegrationDirection direction)
 {
+    constexpr double INITIAL_STEPS_PER_PERIOD = 100.0;
+
+    // Keplerian mean motion of P3 [rad/day].
+    const double n_3 = std::sqrt(mu_13 / astro::cube(a));
+    // Initial Keplerian orbital period of P3 [day].
+    const double period = (2.0 * astro::pi) / n_3;
+    // Convert the orbital period to dimensionless CRTBP time.
+    const double periodDimless = CRTBP2D::toDimlessTime(period, n);
+    // Initial adaptive integration step.
+    const double h0 = periodDimless / INITIAL_STEPS_PER_PERIOD;
+
     StepControl step;
 
-    step.h     = 0.1;
-    step.h_max = 0.1;
+    step.h     = integrationDirectionSign(direction) * h0;
     step.h_nxt = step.h;
+    step.h_did = 0.0;
     step.n_tst = 0;
     step.n_int = 0;
 
@@ -801,13 +840,10 @@ void runOrbit(CRTBP2D &model, const InitData &init, std::ostream &out, StepContr
 {
     // Copy the input orbital elements.
     astro::OrbitalElements elements = init.getElements();
-
     // Calculate the physical integration duration for the current orbit.
     const double duration = init.calcIntegrationDuration(mu_13, elements.a);
-
     // Convert the physical integration duration to dimensionless CRTBP time.
     const double tDimless = CRTBP2D::toDimlessTime(duration, n);
-
     // Calculate the pericenter passage time from the selected
     // orbital-phase input.
     elements.tau = init.calc_tau(mu_13, elements.a);
@@ -841,17 +877,19 @@ void runOrbit(CRTBP2D &model, const InitData &init, std::ostream &out, StepContr
         model.velocityToHamiltonian();
     }
 
-    // First output epoch in dimensionless CRTBP time.
-    double nextOutputDimless = outputDtDimless;
+    // Set the first output time (in dimensionless CRTBP time) according to the integration direction.
+    const double directionSign     = integrationDirectionSign(init.getIntegrationDirection());
+    double       nextOutputDimless = directionSign * outputDtDimless;
 
-    while (model.getT() < tDimless - TIME_EPS) {
+    while (directionSign * (tDimless - model.getT()) > TIME_EPS) {
         if (step.n_tst % 10 == 0) {
             if (!checkFinite(model.getY(), model.getNVar())) {
                 throw std::runtime_error("Non-finite state encountered during orbit integration.");
             }
         }
-
-        const double targetTime = std::min(nextOutputDimless, tDimless);
+        const double targetTime = (init.getIntegrationDirection() == IntegrationDirection::FORWARD)
+                                      ? std::min(nextOutputDimless, tDimless)
+                                      : std::max(nextOutputDimless, tDimless);
         // Force the integrator to stop exactly at the next output
         // or final dimensionless time.
         limitStep(model.getT(), targetTime, step);
@@ -861,17 +899,15 @@ void runOrbit(CRTBP2D &model, const InitData &init, std::ostream &out, StepContr
         ++step.n_int;
         ++step.n_tst;
 
-        const bool outputTimeReached = model.getT() >= nextOutputDimless - TIME_EPS;
-        const bool finalTimeReached  = model.getT() >= tDimless - TIME_EPS;
+        const bool outputTimeReached = directionSign * (model.getT() - nextOutputDimless) >= -TIME_EPS;
+        const bool finalTimeReached  = directionSign * (model.getT() - tDimless) >= -TIME_EPS;
         if (outputTimeReached || finalTimeReached) {
             const double physicalTime = init.getT0() + CRTBP2D::toPhysicalTime(model.getT(), n);
 
             if (model.getFormalism() == Model::Formalism::HAMILTONIAN) {
                 double y_out[4];
-
                 // Hamiltonian -> Newtonian state.
                 model.hamiltonianToNewtonian(y_out);
-
                 // Save the Newtonian CRTBP state.
                 model.printState(out, physicalTime, y_out);
 
@@ -880,8 +916,8 @@ void runOrbit(CRTBP2D &model, const InitData &init, std::ostream &out, StepContr
                 inertialOut << physicalTime << ' ' << inertialState.r.x << ' ' << inertialState.r.y << ' '
                             << inertialState.v.x << ' ' << inertialState.v.y << '\n';
 #endif
-
-            } else {
+            }
+            else {
                 // Save the Newtonian CRTBP state.
                 model.printState(out, physicalTime, model.getY());
 
@@ -891,144 +927,12 @@ void runOrbit(CRTBP2D &model, const InitData &init, std::ostream &out, StepContr
                             << inertialState.v.x << ' ' << inertialState.v.y << '\n';
 #endif
             }
-
             if (outputTimeReached) {
-                nextOutputDimless += outputDtDimless;
+                nextOutputDimless += directionSign * outputDtDimless;
             }
         }
     } /* while */
 }
-
-/**
- * @brief Integrates a single CRTBP orbit and computes a chaos indicator.
- *
- * Initializes the orbital state and deviation vector, integrates the
- * equations of motion and variational equations in dimensionless CRTBP time,
- * and writes the selected chaos indicator at the requested physical output
- * times.
- *
- * Physical input times are specified in days, while the numerical integration
- * is performed using dimensionless CRTBP time.
- *
- * @param model CRTBP model.
- * @param init Initialization data.
- * @param out Output stream.
- * @param step Adaptive integration step-control parameters.
- * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit
- *             [AU^3/day^2].
- * @param n Mean motion of the P1-P2 system [rad/day].
- *
- * @throws std::runtime_error If a non-finite state is encountered.
- */
-// void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepControl &step, double mu_13, double n)
-//{
-//     // Copy the input orbital elements.
-//     astro::OrbitalElements elements = init.getElements();
-//
-//     // Calculate the physical integration duration for the current orbit.
-//     const double duration = init.calcIntegrationDuration(mu_13, elements.a);
-//
-//     // Convert the physical integration duration to dimensionless CRTBP time.
-//     const double tDimless = CRTBP2D::toDimlessTime(duration, n);
-//
-//     // Calculate the pericenter passage time from the selected
-//     // orbital-phase input.
-//     elements.tau = init.calc_tau(mu_13, elements.a);
-//
-//     // Orbital elements -> heliocentric inertial Cartesian state.
-//     const astro::State state = astro::calcState(mu_13, init.getT0(), elements);
-//
-//     // Heliocentric inertial state -> dimensionless rotating CRTBP state.
-//     model.inertialToCRTBP(state, init.getA2(), n);
-//
-//     // Convert the orbital state to Hamiltonian canonical variables if required.
-//     if (model.getFormalism() == Model::Formalism::HAMILTONIAN) {
-//         model.velocityToHamiltonian();
-//     }
-//
-//     // Set the initial deviation vector.
-//     std::copy_n(init.getDy(), 4, model.getY() + 4);
-//
-//     // Current chaos-indicator value.
-//     double indicator_value = 0.0;
-//
-//     switch (model.getIndicator()) {
-//         case Model::IndicatorType::FLI:
-//             // FLI is defined at the initial time.
-//             indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
-//             // Write the initial FLI value.
-//             out << std::setw(io::DATA_FIELD_WIDTH) << init.getT0() << std::setw(io::DATA_FIELD_WIDTH) <<
-//             indicator_value
-//                 << '\n';
-//             break;
-//
-//         case Model::IndicatorType::LCI:
-//             // LCI is not defined at the initial time.
-//             break;
-//
-//         case Model::IndicatorType::RLI:
-//             throw std::runtime_error("RLI indicator is not yet implemented.");
-//
-//         case Model::IndicatorType::NONE:
-//             throw std::runtime_error("INDICATOR mode requires a chaos indicator.");
-//
-//         default:
-//             throw std::runtime_error("Unknown chaos indicator.");
-//     }
-//
-//     // Construct the logarithmic indicator-output schedule.
-//     astro::LogOutputSchedule outputSchedule(init.getOutputFirst(), init.getOutputPointsPerDecade());
-//
-//     while (model.getT() < tDimless - TIME_EPS) {
-//         // Check the numerical state periodically.
-//         if (step.n_tst % 10 == 0) {
-//             if (!checkFinite(model.getY(), model.getNVar())) {
-//                 throw std::runtime_error("Non-finite state encountered during indicator integration.");
-//             }
-//         }
-//
-//         // Stop exactly at the next output time or at the final time.
-//         const double targetTime = std::min(nextOutputDimless, tDimless);
-//
-//         limitStep(model.getT(), targetTime, step);
-//
-//         // Integrate the orbit and the variational equations.
-//         ode_integrator::rkf54(model, model.getParams(), step, init.getRelTol(), init.getAbsTol());
-//
-//         // Physical time corresponding to the current
-//         // dimensionless CRTBP time.
-//         const double physicalTime = init.getT0() + CRTBP2D::toPhysicalTime(model.getT(), n);
-//
-//         // Update indicators that depend on all intermediate integration steps.
-//         switch (model.getIndicator()) {
-//             case Model::IndicatorType::FLI:
-//                 indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
-//                 break;
-//
-//             case Model::IndicatorType::LCI:
-//                 indicator_value = chaos_indicator::computeLCI(model.getT(), 0.0, model.getY(), init.getDy());
-//                 break;
-//
-//             default:
-//                 break;
-//         }
-//
-//         ++step.n_int;
-//         ++step.n_tst;
-//
-//         const bool outputTimeReached = model.getT() >= nextOutputDimless - TIME_EPS;
-//         const bool finalTimeReached  = model.getT() >= tDimless - TIME_EPS;
-//         if (outputTimeReached || finalTimeReached) {
-//             out << std::setw(io::DATA_FIELD_WIDTH) << physicalTime << std::setw(io::DATA_FIELD_WIDTH) <<
-//             indicator_value
-//                 << '\n';
-//
-//             if (outputTimeReached) {
-//                 nextOutputDimless += outputDtDimless;
-//             }
-//         }
-//     }
-// }
 
 /**
  * @brief Integrates a single CRTBP orbit and computes a chaos indicator.
@@ -1052,8 +956,7 @@ void runOrbit(CRTBP2D &model, const InitData &init, std::ostream &out, StepContr
  * @param init Initialization data.
  * @param out Output stream.
  * @param step Adaptive integration step-control parameters.
- * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit
- *              [AU^3/day^2].
+ * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit [AU^3/day^2].
  * @param n Mean motion of the P1-P2 system [rad/day].
  *
  * @throws std::runtime_error If a non-finite state is encountered.
@@ -1062,17 +965,13 @@ void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepC
 {
     // Copy the input orbital elements.
     astro::OrbitalElements elements = init.getElements();
-
     // Calculate the physical integration duration for the current orbit.
     const double duration = init.calcIntegrationDuration(mu_13, elements.a);
-
     // Convert the physical integration duration to dimensionless CRTBP time.
     const double tDimless = CRTBP2D::toDimlessTime(duration, n);
-
     // Calculate the pericenter passage time from the selected
     // orbital-phase input.
     elements.tau = init.calc_tau(mu_13, elements.a);
-
     // Orbital elements -> heliocentric inertial Cartesian state.
     const astro::State state = astro::calcState(mu_13, init.getT0(), elements);
 
@@ -1084,22 +983,27 @@ void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepC
         model.velocityToHamiltonian();
     }
 
+    // Number of components in the deviation vector.
+    const std::size_t nDeviation = model.getNVar() / 2;
+
     // Set the initial deviation vector.
-    std::copy_n(init.getDy(), 4, model.getY() + 4);
+    double *deviation = model.getY() + nDeviation;
+    std::copy_n(init.getDy(), nDeviation, deviation);
+
+    // Initial norm of the deviation vector.
+    const double norm_0 = astro::norm(deviation, nDeviation);
 
     // ---------------------------------------------------------------------
     // Initialize the selected chaos indicator.
     // ---------------------------------------------------------------------
-
     double indicator_value = 0.0;
-
     switch (model.getIndicator()) {
         case Model::IndicatorType::FLI:
             // Initialize the running FLI value at the initial time.
             //
             // The initial value itself is not written because t = 0 cannot
             // be represented on a logarithmic time axis.
-            indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
+            indicator_value = chaos_indicator::computeFLI(deviation, nDeviation, indicator_value, norm_0);
             break;
 
         case Model::IndicatorType::LCI:
@@ -1120,25 +1024,26 @@ void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepC
     // Construct the logarithmic output schedule.
     // ---------------------------------------------------------------------
     astro::LogOutputSchedule outputSchedule(init.getOutputFirst(), init.getOutputPointsPerDecade());
-
+    // Integration direction: +1 for forward and -1 for backward integration.
+    const double directionSign = integrationDirectionSign(init.getIntegrationDirection());
     // First scheduled output time in dimensionless CRTBP units.
-    double nextOutputDimless = CRTBP2D::toDimlessTime(outputSchedule.getNextTime(), n);
+    double nextOutputDimless = directionSign * CRTBP2D::toDimlessTime(outputSchedule.getNextTime(), n);
 
     // ---------------------------------------------------------------------
     // Integrate the orbit and variational equations.
     // ---------------------------------------------------------------------
-
-    while (model.getT() < tDimless - TIME_EPS) {
+    while (directionSign * (tDimless - model.getT()) > TIME_EPS) {
         // Check the numerical state periodically.
         if (step.n_tst % 10 == 0) {
             if (!checkFinite(model.getY(), model.getNVar())) {
                 throw std::runtime_error("Non-finite state encountered during indicator integration.");
             }
         }
-
         // Stop exactly at the next scheduled output time or at the final
-        // integration time, whichever comes first.
-        const double targetTime = std::min(nextOutputDimless, tDimless);
+        // integration time, whichever comes first in the integration direction.
+        const double targetTime = (init.getIntegrationDirection() == IntegrationDirection::FORWARD)
+                                      ? std::min(nextOutputDimless, tDimless)
+                                      : std::max(nextOutputDimless, tDimless);
 
         limitStep(model.getT(), targetTime, step);
 
@@ -1160,13 +1065,14 @@ void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepC
             case Model::IndicatorType::FLI:
                 // FLI is a running maximum and must be updated after every
                 // accepted integration step.
-                indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
+                indicator_value = chaos_indicator::computeFLI(deviation, nDeviation, indicator_value, norm_0);
                 break;
 
             case Model::IndicatorType::LCI:
                 // Calculate the LCI using physical time so that its unit
                 // remains 1/day.
-                indicator_value = chaos_indicator::computeLCI(physicalTime, init.getT0(), model.getY(), init.getDy());
+                indicator_value =
+                    chaos_indicator::computeLCI(physicalTime, init.getT0(), deviation, init.getDy(), nDeviation);
                 break;
 
             default:
@@ -1177,8 +1083,8 @@ void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepC
         // Check whether an output point has been reached.
         // -----------------------------------------------------------------
 
-        const bool outputTimeReached = model.getT() >= nextOutputDimless - TIME_EPS;
-        const bool finalTimeReached  = model.getT() >= tDimless - TIME_EPS;
+        const bool outputTimeReached = directionSign * (model.getT() - nextOutputDimless) >= -TIME_EPS;
+        const bool finalTimeReached  = directionSign * (model.getT() - tDimless) >= -TIME_EPS;
         if (outputTimeReached || finalTimeReached) {
             // Write the current physical epoch and chaos-indicator value.
             //
@@ -1191,164 +1097,10 @@ void runIndicator(CRTBP2D &model, const InitData &init, std::ostream &out, StepC
             // output point has actually been reached.
             if (outputTimeReached) {
                 outputSchedule.advance();
-
-                nextOutputDimless = CRTBP2D::toDimlessTime(outputSchedule.getNextTime(), n);
+                nextOutputDimless = directionSign * CRTBP2D::toDimlessTime(outputSchedule.getNextTime(), n);
             }
         }
     }
-}
-
-/**
- * @brief Computes a chaos indicator over a two-dimensional orbital grid.
- *
- * Integrates the CRTBP equations and variational equations for every
- * semimajor-axis and eccentricity pair of the grid and writes the final
- * value of the selected chaos indicator.
- *
- * Physical input times are specified in days, while the numerical
- * integration is performed using dimensionless CRTBP time.
- *
- * @param model CRTBP model.
- * @param init Initialization data.
- * @param out Output stream.
- * @param step Adaptive integration step-control parameters.
- * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit
- *              [AU^3/day^2].
- * @param n Mean motion of the P1-P2 system [rad/day].
- */
-void runGrid(CRTBP2D &model, const InitData &init, std::ostream &out, StepControl &step, double mu_13, double n)
-{
-    constexpr int W = 18;
-
-    GridIterator grid(init.getA0(), init.getA1(), init.getNa(), init.getE0(), init.getE1(), init.getNe());
-
-    // Check the selected chaos indicator.
-    switch (model.getIndicator()) {
-        case Model::IndicatorType::FLI:
-        case Model::IndicatorType::LCI:
-            break;
-
-        case Model::IndicatorType::RLI:
-            throw std::runtime_error("RLI indicator is not yet implemented.");
-
-        case Model::IndicatorType::NONE:
-            throw std::runtime_error("GRID mode requires a chaos indicator.");
-
-        default:
-            throw std::runtime_error("Unknown chaos indicator.");
-    }
-
-    // Write the output header.
-    out << std::left << std::setw(W) << "a" << std::setw(W) << "e" << std::setw(W)
-        << Model::indicatorTypeToString(model.getIndicator()) << '\n';
-    out << std::right << std::scientific << std::setprecision(10);
-
-    // Save the initial step-control values.
-    const double initial_h     = step.h;
-    const double initial_h_max = step.h_max;
-    const double initial_h_min = step.h_min;
-
-    do {
-        // Reset the dimensionless CRTBP time.
-        model.setT(0.0);
-
-        // Reset the adaptive step-size control.
-        step.h     = initial_h;
-        step.h_nxt = initial_h;
-        step.h_did = 0.0;
-        step.h_max = initial_h_max;
-        step.h_min = initial_h_min;
-        step.n_tst = 0;
-        step.n_int = 0;
-
-        const double a = grid.a();
-        const double e = grid.e();
-        // Calculate the physical integration duration for the current
-        // semimajor axis.
-        const double duration = init.calcIntegrationDuration(mu_13, a);
-
-        // Convert the physical integration duration to dimensionless CRTBP time.
-        const double tDimless = CRTBP2D::toDimlessTime(duration, n);
-
-        // Construct the orbital elements for the current grid point.
-        astro::OrbitalElements elements = init.getElements();
-
-        elements.a = a;
-        elements.e = e;
-
-        // Calculate the pericenter passage time for the current
-        // semimajor axis.
-        elements.tau = init.calc_tau(mu_13, elements.a);
-
-        // Orbital elements -> heliocentric inertial Cartesian state.
-        const astro::State state = astro::calcState(mu_13, init.getT0(), elements);
-
-        // Heliocentric inertial state -> dimensionless rotating CRTBP state.
-        model.inertialToCRTBP(state, init.getA2(), n);
-
-        // Convert only the orbital state to Hamiltonian canonical variables.
-        if (model.getFormalism() == Model::Formalism::HAMILTONIAN) {
-            model.velocityToHamiltonian();
-        }
-
-        // Set the initial deviation vector exactly as specified
-        // in the input file.
-        std::copy_n(init.getDy(), 4, model.getY() + 4);
-
-        double indicator_value = 0.0;
-
-        // Initialize the FLI.
-        if (model.getIndicator() == Model::IndicatorType::FLI) {
-            indicator_value = chaos_indicator::computeFLI(model.getY(), 1.0);
-        }
-
-        bool valid = true;
-
-        // Integrate the current grid point in dimensionless CRTBP time.
-        while (model.getT() < tDimless - TIME_EPS) {
-            // Check the numerical state periodically.
-            if (step.n_tst % 10 == 0) {
-                if (!checkFinite(model.getY(), model.getNVar())) {
-                    valid = false;
-                    break;
-                }
-            }
-
-            // Force the last integration step to end exactly at
-            // the final dimensionless time.
-            limitStep(model.getT(), tDimless, step);
-
-            // Integrate the orbit and variational equations.
-            ode_integrator::rkf54(model, model.getParams(), step, init.getRelTol(), init.getAbsTol());
-
-            ++step.n_int;
-            ++step.n_tst;
-
-            // FLI is a running maximum and must therefore be updated
-            // after every accepted integration step.
-            if (model.getIndicator() == Model::IndicatorType::FLI) {
-                indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
-            }
-        } /* while (model.getT() < tDimless - TIME_EPS) */
-
-        if (valid) {
-            // LCI only needs to be evaluated at the final time.
-            if (model.getIndicator() == Model::IndicatorType::LCI) {
-                const double physicalTime = init.getT0() + CRTBP2D::toPhysicalTime(model.getT(), n);
-                indicator_value = chaos_indicator::computeLCI(physicalTime, init.getT0(), model.getY(), init.getDy());
-            }
-        } else {
-            indicator_value = std::numeric_limits<double>::quiet_NaN();
-            std::cerr << "\nNon-finite state at grid point "
-                      << "(a = " << a << ", e = " << e << "). Proceeding to the next grid point.\n";
-        }
-        // Write the final indicator value.
-        out << std::setw(W) << a << std::setw(W) << e << std::setw(W) << indicator_value << '\n';
-
-        // Display the grid progress.
-        grid.printProgress(std::cerr);
-    } while (grid.next());
-    std::cerr << '\n';
 }
 
 /**
@@ -1376,17 +1128,19 @@ void runGrid(CRTBP2D &model, const InitData &init, std::ostream &out, StepContro
  * @param model CRTBP model.
  * @param init Initialization data.
  * @param out Output stream.
- * @param step Adaptive integration step-control parameters.
  * @param mu_13 Gravitational parameter of the P1-P3 heliocentric orbit
  *              [AU^3/day^2].
  * @param n Mean motion of the P1-P2 system [rad/day].
  *
  * @throws std::runtime_error If the selected chaos indicator is invalid.
  */
-void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, StepControl &step, double mu_13, double n)
+void runGrid(CRTBP2D &model, const InitData &init, std::ostream &out, double mu_13, double n)
 {
     // Construct the multidimensional orbital-element grid iterator.
     GridIterator grid(init.getGridAxes());
+    const double directionSign = integrationDirectionSign(init.getIntegrationDirection());
+    // Number of components in the deviation vector.
+    const std::size_t nDeviation = model.getNVar() / 2;
 
     // ---------------------------------------------------------------------
     // Check the selected chaos indicator.
@@ -1407,43 +1161,26 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
     }
 
     // ---------------------------------------------------------------------
-    // Save the initial adaptive step-control values.
-    // ---------------------------------------------------------------------
-    const double initial_h     = step.h;
-    const double initial_h_max = step.h_max;
-    const double initial_h_min = step.h_min;
-
-    // ---------------------------------------------------------------------
     // Iterate over all grid points.
     // ---------------------------------------------------------------------
     do {
         // Reset the dimensionless CRTBP integration time.
         model.setT(0.0);
-
-        // Reset the adaptive step-size control.
-        step.h     = initial_h;
-        step.h_nxt = initial_h;
-        step.h_did = 0.0;
-        step.h_max = initial_h_max;
-        step.h_min = initial_h_min;
-        step.n_tst = 0;
-        step.n_int = 0;
-
         // -----------------------------------------------------------------
         // Construct the orbital elements for the current grid point.
         // -----------------------------------------------------------------
-
         // Start from the fixed orbital elements specified in the input file.
         astro::OrbitalElements elements = init.getElements();
-
         // Apply all grid-controlled orbital elements that are stored
         // directly in astro::OrbitalElements.
         grid.apply(elements);
+        // Initialize the adaptive step control for the current grid point.
+        // The initial step size depends on the current semimajor axis of P3.
+        StepControl step = createStepControl(elements.a, mu_13, n, init.getIntegrationDirection());
 
         // -----------------------------------------------------------------
         // Resolve the orbital phase.
         // -----------------------------------------------------------------
-
         if (grid.hasAxis(OrbitalElement::MEAN_ANOMALY)) {
             // Mean anomaly is specified in degrees in the grid.
             const double meanAnomaly = astro::toRad(grid.getValue(OrbitalElement::MEAN_ANOMALY));
@@ -1452,16 +1189,15 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
             const double n_3 = std::sqrt(mu_13 / astro::cube(elements.a));
 
             // M(t0) = n_3 * (t0 - tau)
-            //
             // therefore
-            //
             // tau = t0 - M(t0) / n_3.
             elements.tau = init.getT0() - meanAnomaly / n_3;
-
-        } else if (grid.hasAxis(OrbitalElement::PERICENTER_TIME)) {
+        }
+        else if (grid.hasAxis(OrbitalElement::PERICENTER_TIME)) {
             // tau has already been assigned by grid.apply().
             // No additional conversion is required.
-        } else {
+        }
+        else {
             // The orbital phase is fixed in the input file.
             //
             // calc_tau() returns the specified tau directly or calculates
@@ -1472,7 +1208,6 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
         // -----------------------------------------------------------------
         // Calculate the integration duration for the current grid point.
         // -----------------------------------------------------------------
-
         const double duration = init.calcIntegrationDuration(mu_13, elements.a);
         const double tDimless = CRTBP2D::toDimlessTime(duration, n);
 
@@ -1493,27 +1228,38 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
             model.velocityToHamiltonian();
         }
 
+        // -----------------------------------------------------------------
+        // Initialize the deviation vector.
+        // -----------------------------------------------------------------
+        double *deviation = model.getY() + nDeviation;
         // Set the initial deviation vector exactly as specified
         // in the input file.
-        std::copy_n(init.getDy(), 4, model.getY() + 4);
+        std::copy_n(init.getDy(), nDeviation, deviation);
+        // Initial deviation-vector norm for the current grid point.
+        const double norm_0 = astro::norm(deviation, nDeviation);
 
         // -----------------------------------------------------------------
         // Initialize the selected chaos indicator.
         // -----------------------------------------------------------------
-
         double indicator_value = 0.0;
 
         if (model.getIndicator() == Model::IndicatorType::FLI) {
-            indicator_value = chaos_indicator::computeFLI(model.getY(), 1.0);
+            // At the initial time:
+            //
+            // log(||delta(t0)|| / ||delta(t0)||) = 0.
+            //
+            // Calling computeFLI() here also validates the initial
+            // deviation-vector norm.
+            indicator_value = chaos_indicator::computeFLI(deviation, nDeviation, 0.0, norm_0);
         }
-
-        bool valid = true;
 
         // -----------------------------------------------------------------
         // Integrate the current grid point.
         // -----------------------------------------------------------------
 
-        while (model.getT() < tDimless - TIME_EPS) {
+        bool valid = true;
+
+        while (directionSign * (tDimless - model.getT()) > TIME_EPS) {
             // Check the numerical state periodically.
             if (step.n_tst % 10 == 0) {
                 if (!checkFinite(model.getY(), model.getNVar())) {
@@ -1535,7 +1281,7 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
             // FLI is a running maximum and must therefore be updated
             // after every accepted integration step.
             if (model.getIndicator() == Model::IndicatorType::FLI) {
-                indicator_value = chaos_indicator::computeFLI(model.getY(), indicator_value);
+                indicator_value = chaos_indicator::computeFLI(deviation, nDeviation, indicator_value, norm_0);
             }
         } /* while */
 
@@ -1548,11 +1294,12 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
             if (model.getIndicator() == Model::IndicatorType::LCI) {
                 // Convert the final dimensionless CRTBP time to physical time [day].
                 const double physicalTime = init.getT0() + CRTBP2D::toPhysicalTime(model.getT(), n);
-                indicator_value = chaos_indicator::computeLCI(physicalTime, init.getT0(), model.getY(), init.getDy());
+                indicator_value = chaos_indicator::computeLCI(physicalTime, init.getT0(), deviation, init.getDy(), nDeviation);
             }
-
-        } else {
+        }
+        else {
             indicator_value = std::numeric_limits<double>::quiet_NaN();
+
             std::cerr << "\nNon-finite state encountered at grid point:\n";
             grid.printCurrentPoint(std::cerr);
             std::cerr << "Proceeding to the next grid point.\n";
@@ -1561,11 +1308,9 @@ void runGridGeneral(CRTBP2D &model, const InitData &init, std::ostream &out, Ste
         // -----------------------------------------------------------------
         // Write the current grid coordinates and the indicator value.
         // -----------------------------------------------------------------
-
         for (std::size_t axisIndex = 0; axisIndex < grid.getAxisCount(); ++axisIndex) {
             out << std::setw(io::DATA_FIELD_WIDTH) << grid.getValue(axisIndex);
         }
-
         out << std::setw(io::DATA_FIELD_WIDTH) << indicator_value << '\n';
 
         // Display the grid progress.
@@ -1584,16 +1329,9 @@ void run(const InitData &init, const CommandLineOptions &opt)
 
     CRTBP2D model(mu, init.getFormalism(), init.getIndicator());
 
-    // Dimensionless output time interval.
-    // const double outputDtDimless = CRTBP2D::toDimlessTime(init.getOutputDt(), n);
-
-    // Adaptive integration step-control parameters.
-    StepControl step = createStepControl();
-
     // Open either the explicitly requested output file or the automatically
     // generated output file.
     std::ofstream fout;
-
     std::ostream *out = openOutputStream(opt, init, fout);
 
     // Write the complete reproducibility header:
@@ -1601,9 +1339,7 @@ void run(const InitData &init, const CommandLineOptions &opt)
     //  - exact copy of the input file,
     //  - description of the numerical output structure.
     io::writeOutputHeader(*out, fs::path(opt.input_path), init);
-
     io::configureNumericalOutput(*out);
-
     // Write the actual numerical table header from the same schema that is
     // used in the reproducibility header.
     io::writeTableHeader(*out, init);
@@ -1615,16 +1351,21 @@ void run(const InitData &init, const CommandLineOptions &opt)
         case RunMode::ORBIT: {
             // Dimensionless output time interval for ORBIT mode.
             const double outputDtDimless = CRTBP2D::toDimlessTime(init.getOutputDt(), n);
+            const double a               = init.getElements().a;
+            StepControl  step            = createStepControl(a, mu_13, n, init.getIntegrationDirection());
             runOrbit(model, init, *out, step, mu_13, n, outputDtDimless);
             break;
         }
 
-        case RunMode::INDICATOR:
+        case RunMode::INDICATOR: {
+            const double a    = init.getElements().a;
+            StepControl  step = createStepControl(a, mu_13, n, init.getIntegrationDirection());
             runIndicator(model, init, *out, step, mu_13, n);
             break;
+        }
 
         case RunMode::GRID:
-            runGridGeneral(model, init, *out, step, mu_13, n);
+            runGrid(model, init, *out, mu_13, n);
             break;
 
         default:
@@ -1662,9 +1403,11 @@ int main(int argc, char *argv[])
         std::cout << "\nTotal runtime : " << elapsed_time.count() << " s\n";
 
         return EXIT_SUCCESS;
-    } catch (const std::exception &e) {
+    }
+    catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << '\n';
-    } catch (...) {
+    }
+    catch (...) {
         std::cerr << "Unknown error.\n";
     }
 
