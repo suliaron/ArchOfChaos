@@ -6,7 +6,6 @@
 #include <vector>      // std::vector
 
 class InitData;  // Forward declaration used by the I/O interface.
-struct CommandLineOptions;
 
 namespace io {
 
@@ -18,7 +17,7 @@ namespace io {
     /**
      * @brief Number of digits written after the decimal point in scientific notation.
      */
-    inline constexpr int DATA_PRECISION = 10;
+    inline constexpr int DATA_PRECISION = 11;
 
     /**
      * @brief Describes one column of a numerical output table.
@@ -32,30 +31,6 @@ namespace io {
         std::string unit;         ///< Physical unit, or "-" if dimensionless.
         std::string description;  ///< Human-readable description.
     };
-
-    /**
-     * @brief Opens the program output stream.
-     *
-     * If an output file is explicitly specified with the -o command-line
-     * option, that file is used. Otherwise, an output file name is generated
-     * automatically from the initialization parameters.
-     *
-     * If an output directory is specified with -oDir, an automatically
-     * generated output file is created in that directory.
-     *
-     * If verbose output is enabled, the absolute path of the opened output
-     * file is printed to the standard output.
-     *
-     * @param opt Parsed command-line options.
-     * @param init Initialization data.
-     * @param fout Output file stream.
-     *
-     * @return Pointer to the opened output stream.
-     *
-     * @throws std::runtime_error If an automatic output file name cannot be
-     *         generated or the output file cannot be opened.
-     */
-    std::ostream *openOutputStream(const CommandLineOptions &opt, const InitData &init, std::ofstream &fout);
 
     /**
      * @brief Configures an output stream for numerical data.

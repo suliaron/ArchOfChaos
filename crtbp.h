@@ -43,7 +43,7 @@ class CRTBP2D : public Model {
      *
      * @return Pointer to the CRTBP parameters.
      */
-    Params *getParams() noexcept
+    void *getParams() noexcept override
     {
         return &param_;
     }
@@ -79,7 +79,7 @@ class CRTBP2D : public Model {
      * @param a2 Constant distance between the two primary bodies [AU].
      * @param n Mean motion of the primary bodies [rad/day].
      */
-    void inertialToCRTBP(const astro::State &state, double a2, double n);
+    void inertialToCRTBP(const astro::State &state, double a2, double n) override;
 
     /**
      * @brief Converts a Newtonian CRTBP state to the P1-centered inertial frame.
@@ -144,7 +144,7 @@ class CRTBP2D : public Model {
      * The transformation is performed in place on the model state vector.
      * The position coordinates remain unchanged.
      */
-    void velocityToHamiltonian() noexcept;
+    void velocityToHamiltonian() noexcept override;
 
     /**
      * @brief Converts the Hamiltonian state to position-velocity variables.
@@ -168,7 +168,18 @@ class CRTBP2D : public Model {
      *
      * @param y_out Output state vector (x, y, vx, vy).
      */
-    void hamiltonianToNewtonian(double *y_out) const noexcept;
+    void hamiltonianToNewtonian(double *y_out) const noexcept override;
+
+    /**
+     * @brief Computes the Jacobi constant of the current CRTBP state.
+     *
+     * The Jacobi constant is calculated from the current internal state.
+     * Both Newtonian position-velocity variables and Hamiltonian canonical
+     * variables are supported.
+     *
+     * @return Dimensionless Jacobi constant.
+     */
+    double calcJacobiConstant() const noexcept override;
 
     /**
      * @brief Converts a physical time interval to dimensionless CRTBP time.
@@ -297,6 +308,225 @@ class CRTBP2D : public Model {
      * @param y State vector including the deviation vector.
      * @param dydt Time derivative of the state and deviation vectors.
      * @param par Pointer to model-specific parameters.
+     */
+    void varFun(double t, const double *y, double *dydt, void *par) const override;
+
+    Params param_;
+};
+
+/**
+ * @brief Spatial circular restricted three-body problem model.
+ *
+ * Implements the spatial circular restricted three-body problem (CRTBP)
+ * in the rotating reference frame.
+ *
+ * The orbital state contains six variables:
+ *
+ *     y = (x, y, z, vx, vy, vz)
+ *
+ * in the Newtonian formulation, or
+ *
+ *     y = (x, y, z, px, py, pz)
+ *
+ * in the Hamiltonian formulation.
+ *
+ * When variational equations are integrated, the corresponding
+ * six-component deviation vector is appended to the orbital state.
+ */
+class CRTBP3D : public Model {
+   public:
+    /**
+     * @brief Parameters of the spatial circular restricted three-body problem.
+     */
+    struct Params {
+        double mu; /**< CRTBP mass parameter, mu = m2 / (m1 + m2). */
+    };
+
+    /**
+     * @brief Constructs a spatial CRTBP model.
+     *
+     * @param mu CRTBP mass parameter.
+     * @param formalism Mathematical formulation of the equations of motion.
+     * @param indicator Chaos indicator to be computed.
+     *
+     * @throws std::runtime_error If the selected indicator is not implemented
+     *         or is unknown.
+     */
+    CRTBP3D(double mu, Model::Formalism formalism, Model::IndicatorType indicator);
+
+    /**
+     * @brief Returns the model parameters.
+     *
+     * @return Pointer to the CRTBP parameters.
+     */
+    void *getParams() noexcept override
+    {
+        return &param_;
+    }
+
+    /**
+     * @brief Converts a heliocentric inertial state to the normalized
+     *        barycentric rotating spatial CRTBP state.
+     *
+     * The resulting Newtonian state vector is
+     *
+     *     y = (x, y, z, vx, vy, vz).
+     *
+     * Distances are scaled by the constant separation @p a2 of the primary
+     * bodies, and velocities by @p n * @p a2.
+     *
+     * At the transformation epoch, the inertial and rotating coordinate axes
+     * are assumed to be aligned, with the secondary body located on the
+     * positive x-axis.
+     *
+     * @param state Heliocentric inertial Cartesian state.
+     * @param a2 Constant distance between the two primary bodies [AU].
+     * @param n Mean motion of the primary bodies [rad/day].
+     */
+    void inertialToCRTBP(const astro::State &state, double a2, double n) override;
+
+    /**
+     * @brief Converts a Newtonian spatial CRTBP state to the P1-centered inertial frame.
+     *
+     * Transforms a dimensionless barycentric rotating CRTBP state
+     *
+     *     y = (x, y, z, vx, vy, vz)
+     *
+     * expressed in position-velocity variables to a heliocentric inertial
+     * Cartesian state relative to the primary body P1.
+     *
+     * The rotating and inertial coordinate axes are assumed to be aligned at
+     * dimensionless time t = 0. The current dimensionless model time is used
+     * as the rotation angle between the two frames.
+     *
+     * @param y Newtonian CRTBP state vector (x, y, z, vx, vy, vz).
+     * @param a2 Constant distance between the two primary bodies [AU].
+     * @param n Mean motion of the primary bodies [rad/day].
+     *
+     * @return P1-centered inertial Cartesian state with position in AU and
+     *         velocity in AU/day.
+     */
+    astro::State crtbpToInertial(const double *y, double a2, double n) const noexcept;
+
+    /**
+     * @brief Converts the spatial CRTBP state to Hamiltonian canonical variables.
+     *
+     * Converts
+     *
+     *     y = (x, y, z, vx, vy, vz)
+     *
+     * to
+     *
+     *     y = (x, y, z, px, py, pz),
+     *
+     * using
+     *
+     *     px = vx - y,
+     *     py = vy + x,
+     *     pz = vz.
+     *
+     * The transformation is performed in place.
+     */
+    void velocityToHamiltonian() noexcept override;
+
+    /**
+     * @brief Converts the spatial Hamiltonian state to position-velocity variables.
+     *
+     * Converts
+     *
+     *     y = (x, y, z, px, py, pz)
+     *
+     * to
+     *
+     *     y_out = (x, y, z, vx, vy, vz),
+     *
+     * using
+     *
+     *     vx = px + y,
+     *     vy = py - x,
+     *     vz = pz.
+     *
+     * @param y_out Output Newtonian state vector.
+     */
+    void hamiltonianToNewtonian(double *y_out) const noexcept override;
+
+    /**
+     * @brief Computes the Jacobi constant of the current CRTBP state.
+     *
+     * The Jacobi constant is calculated from the current internal state.
+     * Both Newtonian position-velocity variables and Hamiltonian canonical
+     * variables are supported.
+     *
+     * @return Dimensionless Jacobi constant.
+     */
+    double calcJacobiConstant() const noexcept override;
+
+    /**
+     * @brief Writes the spatial CRTBP state.
+     *
+     * @param os Output stream.
+     * @param t Physical output time.
+     * @param y Newtonian state vector (x, y, z, vx, vy, vz).
+     */
+    void printState(std::ostream &os, double t, const double *y) const override;
+
+   private:
+    /**
+     * @brief Evaluates the spatial CRTBP equations of motion
+     *        using the selected formalism.
+     *
+     * Dispatches the evaluation to the Newtonian or Hamiltonian formulation
+     * according to the currently selected formalism.
+     *
+     * @param t Current time.
+     * @param y State vector.
+     * @param dydt Time derivative of the state vector.
+     * @param par Pointer to model-specific parameters.
+     */
+    void fun(double t, const double *y, double *dydt, void *par) const override;
+
+    /**
+     * @brief Evaluates the spatial CRTBP equations of motion
+     *        in the position-velocity formulation.
+     *
+     * The state vector is
+     *
+     *     y = (x, y, z, vx, vy, vz).
+     *
+     * @param t Current time.
+     * @param y State vector.
+     * @param dydt Time derivative of the state vector.
+     * @param par Pointer to model parameters.
+     */
+    void funNewtonian(double t, const double *y, double *dydt, void *par) const;
+
+    /**
+     * @brief Evaluates the spatial CRTBP equations of motion
+     *        in Hamiltonian canonical variables.
+     *
+     * The state vector is
+     *
+     *     y = (x, y, z, px, py, pz).
+     *
+     * @param t Current time.
+     * @param y State vector in canonical variables.
+     * @param dydt Time derivative of the state vector.
+     * @param par Pointer to model parameters.
+     */
+    void funHamiltonian(double t, const double *y, double *dydt, void *par) const;
+
+    /**
+     * @brief Evaluates the spatial CRTBP equations and variational equations.
+     *
+     * The spatial variational equations are not yet implemented.
+     *
+     * @param t Current time.
+     * @param y State vector including the deviation vector.
+     * @param dydt Time derivative of the state and deviation vectors.
+     * @param par Pointer to model-specific parameters.
+     *
+     * @throws std::runtime_error Always, until the spatial variational
+     *         equations are implemented.
      */
     void varFun(double t, const double *y, double *dydt, void *par) const override;
 

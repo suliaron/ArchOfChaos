@@ -149,9 +149,12 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="chaos_indicator.cpp" />
+    <ClCompile Include="command_line.cpp" />
     <ClCompile Include="crtbp.cpp" />
     <ClCompile Include="grid.cpp" />
     <ClCompile Include="init_data.cpp" />
+    <ClCompile Include="integrator.cpp" />
     <ClCompile Include="io.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="model.cpp" />
@@ -162,9 +165,12 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="chaos_indicator.h" />
+    <ClInclude Include="command_line.h" />
     <ClInclude Include="crtbp.h" />
     <ClInclude Include="grid.h" />
     <ClInclude Include="init_data.h" />
+    <ClInclude Include="integrator.h" />
     <ClInclude Include="io.h" />
     <ClInclude Include="model.h" />
     <ClInclude Include="version.h" />

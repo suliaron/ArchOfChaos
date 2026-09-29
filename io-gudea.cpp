@@ -1,25 +1,18 @@
-#include "io.h"            // Input/output helpers and reproducibility metadata
-#include "command_line.h"  // CommandLineOptions
-#include "grid.h"          // GridAxis, OrbitalElement, and grid-element helpers
-#include "init_data.h"     // InitData, RunMode, ProblemType
-#include "math_utils.h"    // astro::toDeg
-#include "model.h"         // Model and chaos-indicator/formalism helpers
-#include "orbit.h"         // Orbital-element definitions
-#include "version.h"       // Program identification and version information
+#include "io.h"         // Input/output helpers and reproducibility metadata
+#include "grid.h"       // GridAxis, OrbitalElement, and grid-element helpers
+#include "init_data.h"  // InitData
+#include "version.h"    // Program identification and version information
 
-#include <algorithm>  /**<  */
-#include <chrono>     /**< std::chrono::system_clock */
-#include <cstddef>    /**< std::size_t */
-#include <ctime>      /**< std::time_t, std::tm */
-#include <filesystem> /**< */
-#include <fstream>    /**< std::ifstream */
-#include <iomanip>    /**< std::put_time, std::setprecision, std::setw */
-#include <iostream>   /**< */
-#include <ostream>    /**< std::ostream */
-#include <sstream>    /**< std::ostringstream */
-#include <stdexcept>  /**< std::runtime_error */
-#include <string>     /**< std::string */
-#include <vector>     /**< std::vector */
+#include <chrono>     // std::chrono::system_clock
+#include <cstddef>    // std::size_t
+#include <ctime>      // std::time_t, std::tm
+#include <fstream>    // std::ifstream
+#include <iomanip>    // std::put_time, std::setprecision, std::setw
+#include <ostream>    // std::ostream
+#include <sstream>    // std::ostringstream
+#include <stdexcept>  // std::runtime_error
+#include <string>     // std::string
+#include <vector>     // std::vector
 
 #if defined(_WIN32)
 #include <windows.h>  // GetComputerNameA
@@ -28,23 +21,6 @@
 #endif
 
 namespace {
-    /**
-     * @brief Converts a floating-point value to a compact string for use
-     *        in automatically generated output file names.
-     *
-     * Decimal points, minus signs, and scientific notation are preserved.
-     *
-     * @param value Numerical value to convert.
-     *
-     * @return Compact textual representation of @p value.
-     */
-    std::string filenameNumber(double value)
-    {
-        std::ostringstream os;
-        os << std::setprecision(8) << std::defaultfloat << value;
-        return os.str();
-    }
-
     /**
      * @brief Returns a human-readable description of an orbital element.
      *
@@ -263,317 +239,22 @@ namespace {
         char name[256] = {};
 
 #if defined(_WIN32)
-
         DWORD size = static_cast<DWORD>(sizeof(name));
 
         if (GetComputerNameA(name, &size) != 0) {
             return std::string(name, size);
         }
-
 #else
-
         if (gethostname(name, sizeof(name)) == 0) {
             name[sizeof(name) - 1] = '\0';
             return std::string(name);
         }
-
 #endif
-
         return "unknown";
     }
 }  // namespace
 
 namespace io {
-
-    /**
-     * @brief Builds an automatic output file name for ORBIT or INDICATOR mode.
-     *
-     * The file name contains the computation type, mathematical formalism,
-     * integration-duration mode and value, output schedule, P1-P2
-     * separation, and all fixed orbital elements.
-     *
-     * For ORBIT mode, the file name starts with "ORBIT".
-     * For INDICATOR mode, it starts with the selected chaos-indicator name.
-     *
-     * Angular orbital elements are written in degrees.
-     *
-     * Examples:
-     *
-     *     ORBIT_NEWTONIAN_nP-100_dt-10_a2-5.2026_
-     *     a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
-     *
-     *     LCI_NEWTONIAN_nP-100_log-0.0001-N9_a2-5.2026_
-     *     a-5.2_e-0.1_i-0_omega-60_Omega-0_M-30.txt
-     *
-     * @param init Initialization data.
-     *
-     * @return Automatically generated output file name.
-     *
-     * @throws std::runtime_error If the function is called outside ORBIT or
-     *         INDICATOR mode, or if the integration-duration or orbital-phase
-     *         input mode is unknown.
-     */
-    std::string buildTimeSeriesOutputFileName(const InitData &init)
-    {
-        if (init.getRunMode() != RunMode::ORBIT && init.getRunMode() != RunMode::INDICATOR) {
-            throw std::runtime_error(
-                "buildTimeSeriesOutputFileName() requires "
-                "ORBIT or INDICATOR mode.");
-        }
-
-        std::ostringstream name;
-
-        // ---------------------------------------------------------------------
-        // Computation type.
-        // ---------------------------------------------------------------------
-        if (init.getRunMode() == RunMode::ORBIT) {
-            name << "ORBIT";
-        }
-        else {
-            name << Model::indicatorTypeToString(init.getIndicator());
-        }
-
-        // ---------------------------------------------------------------------
-        // Problem type.
-        // ---------------------------------------------------------------------
-        switch (init.getProblemType()) {
-            case ProblemType::CRTBP2D:
-                name << "_CRTBP2D";
-                break;
-
-            case ProblemType::CRTBP3D:
-                name << "_CRTBP3D";
-                break;
-
-            default:
-                throw std::runtime_error("Unknown problem type while building output file name.");
-        }
-
-        // ---------------------------------------------------------------------
-        // Mathematical formalism.
-        // ---------------------------------------------------------------------
-        name << '_' << Model::formalismToString(init.getFormalism());
-
-        // ---------------------------------------------------------------------
-        // Integration duration.
-        // ---------------------------------------------------------------------
-        if (init.usesPhysicalIntegrationTime()) {
-            name << "_T-" << filenameNumber(init.getT());
-        }
-        else if (init.usesOrbitalPeriods()) {
-            name << "_nP-" << filenameNumber(init.getNPeriods());
-        }
-        else {
-            throw std::runtime_error("Unknown integration-duration input mode.");
-        }
-
-        // ---------------------------------------------------------------------
-        // Output schedule.
-        // ---------------------------------------------------------------------
-        if (init.getRunMode() == RunMode::ORBIT) {
-            // Linear output interval for orbit integration.
-            name << "_dt-" << filenameNumber(init.getOutputDt());
-        }
-        else {
-            // Logarithmic output schedule for chaos indicators.
-            name << "_log-" << filenameNumber(init.getOutputFirst()) << "-N" << init.getOutputPointsPerDecade();
-        }
-
-        // ---------------------------------------------------------------------
-        // P1-P2 separation.
-        // ---------------------------------------------------------------------
-        name << "_a2-" << filenameNumber(init.getA2());
-
-        // ---------------------------------------------------------------------
-        // Fixed orbital elements.
-        // ---------------------------------------------------------------------
-        const astro::OrbitalElements &elements = init.getElements();
-        name << "_a-" << filenameNumber(elements.a);
-        name << "_e-" << filenameNumber(elements.e);
-        name << "_i-" << filenameNumber(astro::toDeg(elements.i));
-        name << "_omega-" << filenameNumber(astro::toDeg(elements.omega));
-        name << "_Omega-" << filenameNumber(astro::toDeg(elements.Omega));
-
-        // ---------------------------------------------------------------------
-        // Orbital phase.
-        // ---------------------------------------------------------------------
-        if (init.usesFixedTau()) {
-            name << "_tau-" << filenameNumber(elements.tau);
-        }
-        else if (init.usesFixedMeanAnomaly()) {
-            name << "_M-" << filenameNumber(astro::toDeg(init.getMeanAnomaly()));
-        }
-        else {
-            throw std::runtime_error("Unknown orbital-phase input mode.");
-        }
-
-        // ---------------------------------------------------------------------
-        // File extension.
-        // ---------------------------------------------------------------------
-        name << ".txt";
-
-        return name.str();
-    }
-
-    /**
-     * @brief Builds an automatic output file name for GRID mode.
-     *
-     * The file name contains the selected chaos indicator, mathematical
-     * formalism, complete grid definitions, integration-duration mode,
-     * primary-body separation, and all fixed orbital elements.
-     *
-     * Each grid axis is represented by its orbital-element name, lower and
-     * upper limits, and number of intervals.
-     *
-     * Example:
-     *
-     *     LCI_NEWTONIAN_grid-a-4.8to5.8-N250_M-30to330-N30_
-     *     nP-100_a2-5.2026_e-0_i-0_omega-60_Omega-0.txt
-     *
-     * Angular fixed orbital elements are written in degrees.
-     *
-     * @param init Initialization data.
-     *
-     * @return Automatically generated output file name.
-     *
-     * @throws std::runtime_error If the function is called outside GRID mode.
-     */
-    std::string buildGridOutputFileName(const InitData &init)
-    {
-        if (init.getRunMode() != RunMode::GRID) {
-            throw std::runtime_error("buildGridOutputFileName() requires GRID mode.");
-        }
-
-        std::ostringstream name;
-        // ---------------------------------------------------------------------
-        // Chaos indicator and mathematical formalism.
-        // ---------------------------------------------------------------------
-        name << Model::indicatorTypeToString(init.getIndicator()) << '_'
-             << Model::formalismToString(init.getFormalism());
-
-        // ---------------------------------------------------------------------
-        // Grid definitions.
-        // ---------------------------------------------------------------------
-
-        name << "_grid";
-        for (const GridAxis &axis : init.getGridAxes()) {
-            name << '_' << orbitalElementToString(axis.element) << '-' << filenameNumber(axis.min) << "to"
-                 << filenameNumber(axis.max) << "-N" << axis.nIntervals;
-        }
-
-        // ---------------------------------------------------------------------
-        // Integration duration.
-        // ---------------------------------------------------------------------
-        if (init.usesPhysicalIntegrationTime()) {
-            name << "_T-" << filenameNumber(init.getT());
-        }
-        else if (init.usesOrbitalPeriods()) {
-            name << "_nP-" << filenameNumber(init.getNPeriods());
-        }
-        else {
-            throw std::runtime_error("Unknown integration-duration input mode.");
-        }
-
-        // ---------------------------------------------------------------------
-        // P1-P2 separation.
-        // ---------------------------------------------------------------------
-        name << "_a2-" << filenameNumber(init.getA2());
-
-        // ---------------------------------------------------------------------
-        // Fixed orbital elements.
-        // ---------------------------------------------------------------------
-        const astro::OrbitalElements &elements   = init.getElements();
-        const auto                   &gridAxes   = init.getGridAxes();
-        const auto                    isGridAxis = [&gridAxes](OrbitalElement element) {
-            return std::any_of(gridAxes.begin(), gridAxes.end(),
-                               [element](const GridAxis &axis) { return axis.element == element; });
-        };
-
-        if (!isGridAxis(OrbitalElement::SEMIMAJOR_AXIS)) {
-            name << "_a-" << filenameNumber(elements.a);
-        }
-
-        if (!isGridAxis(OrbitalElement::ECCENTRICITY)) {
-            name << "_e-" << filenameNumber(elements.e);
-        }
-
-        if (!isGridAxis(OrbitalElement::INCLINATION)) {
-            name << "_i-" << filenameNumber(astro::toDeg(elements.i));
-        }
-
-        if (!isGridAxis(OrbitalElement::ARGUMENT_OF_PERICENTER)) {
-            name << "_omega-" << filenameNumber(astro::toDeg(elements.omega));
-        }
-
-        if (!isGridAxis(OrbitalElement::LONGITUDE_OF_ASCENDING_NODE)) {
-            name << "_Omega-" << filenameNumber(astro::toDeg(elements.Omega));
-        }
-
-        // ---------------------------------------------------------------------
-        // Fixed orbital phase.
-        // ---------------------------------------------------------------------
-        if (!isGridAxis(OrbitalElement::PERICENTER_TIME) && !isGridAxis(OrbitalElement::MEAN_ANOMALY)) {
-            if (init.usesFixedTau()) {
-                name << "_tau-" << filenameNumber(elements.tau);
-            }
-            else if (init.usesFixedMeanAnomaly()) {
-                name << "_M-" << filenameNumber(astro::toDeg(init.getMeanAnomaly()));
-            }
-        }
-
-        // ---------------------------------------------------------------------
-        // File extension.
-        // ---------------------------------------------------------------------
-        name << ".txt";
-
-        return name.str();
-    }
-
-    std::ostream *openOutputStream(const CommandLineOptions &opt, const InitData &init, std::ofstream &fout)
-    {
-        std::filesystem::path outputPath;
-
-        // Use the explicitly specified output file if -o was given.
-        if (!opt.output_path.empty()) {
-            outputPath = opt.output_path;
-        }
-        else {
-            // Generate the output file name automatically.
-            switch (init.getRunMode()) {
-                case RunMode::ORBIT:
-                case RunMode::INDICATOR:
-                    outputPath = buildTimeSeriesOutputFileName(init);
-                    break;
-
-                case RunMode::GRID:
-                    outputPath = buildGridOutputFileName(init);
-                    break;
-
-                default:
-                    throw std::runtime_error("Unknown run mode while generating output file name.");
-            }
-
-            // If -oDir was specified, place the automatically generated
-            // output file in that directory.
-            if (!opt.output_dir.empty()) {
-                outputPath = std::filesystem::path(opt.output_dir) / outputPath;
-            }
-        }
-
-        outputPath = std::filesystem::absolute(outputPath);
-
-        fout.open(outputPath);
-
-        if (!fout) {
-            throw std::runtime_error("Cannot open output file: " + outputPath.string());
-        }
-
-        if (opt.verbose) {
-            std::cout << "Output file    : " << outputPath.string() << '\n';
-        }
-
-        return &fout;
-    }
 
     void configureNumericalOutput(std::ostream &out)
     {
@@ -698,7 +379,7 @@ namespace io {
             if (!column.unit.empty()) {
                 label += " [" + column.unit + "]";
             }
-            out << std::left << std::setw(DATA_FIELD_WIDTH) << label;
+            out << std::left << std::setw(DATA_FIELD_WIDTH) << label << ' ';
         }
         out << '\n';
 
@@ -726,7 +407,7 @@ namespace io {
                 if (init.getProblemType() == ProblemType::CRTBP3D) {
                     columns.push_back({"vz", "-", "Dimensionless rotating-frame z velocity"});
                 }
-
+                columns.push_back({"CJ", "-", "Dimensionless Jacobi constant"});
                 break;
                 // -----------------------------------------------------------------
                 // INDICATOR

@@ -15,44 +15,36 @@ namespace program {
      * @brief Full program name.
      */
     inline constexpr char name[] = "Arch of Chaos";
-
     /**
      * @brief Command-line executable name.
      */
     inline constexpr char executable[] = "archofchaos";
-
     /**
      * @brief Major version number.
      */
     inline constexpr int versionMajor = 1;
-
     /**
      * @brief Minor version number.
      */
     inline constexpr int versionMinor = 7;
-
     /**
      * @brief Patch version number.
      */
     inline constexpr int versionPatch = 0;
-
     /**
      * @brief Complete program version string.
      *
      * The version follows the MAJOR.MINOR.PATCH convention.
      */
     inline constexpr char version[] = "1.7.0";
-
     /**
      * @brief Program author.
      */
     inline constexpr char author[] = "Dr. Áron Süli";
-
     /**
      * @brief Author affiliation.
      */
     inline constexpr char affiliation[] = "Eötvös Loránd University (ELTE)";
-
     /**
      * @brief Short description of the program.
      */

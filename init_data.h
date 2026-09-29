@@ -13,6 +13,14 @@
 #include <vector>    // std::vector container for storing grid-axis definitions.
 
 /**
+ * @brief Specifies the restricted three-body problem model.
+ */
+enum class ProblemType {
+    CRTBP2D, /**< Planar circular restricted three-body problem. */
+    CRTBP3D  /**< Spatial circular restricted three-body problem. */
+};
+
+/**
  * @brief Specifies the overall computation mode.
  */
 enum class RunMode {
@@ -110,6 +118,12 @@ class InitData {
     bool usesOrbitalPeriods() const noexcept
     {
         return integration_duration_input_ == IntegrationDurationInput::ORBITAL_PERIODS;
+    }
+
+    /** @return Selected restricted three-body problem model. */
+    ProblemType getProblemType() const noexcept
+    {
+        return problem_type_;
     }
 
     /** @return Selected run mode. */
@@ -508,6 +522,16 @@ class InitData {
     static void Trim(std::string &text);
 
     /**
+     * @brief Converts text to a restricted three-body problem type.
+     *
+     * @param text Problem type as text.
+     * @return Corresponding problem type.
+     *
+     * @throws std::runtime_error If the value is unknown.
+     */
+    static ProblemType ParseProblemType(const std::string &text);
+
+    /**
      * @brief Converts text to a run mode.
      *
      * @param text Run mode as text.
@@ -537,6 +561,7 @@ class InitData {
      */
     static Model::Formalism parseFormalism(const std::string &text);
 
+    ProblemType          problem_type_          = ProblemType::CRTBP2D;
     RunMode              run_mode_              = RunMode::ORBIT;
     IntegrationDirection integration_direction_ = IntegrationDirection::FORWARD;
     Model::Formalism     formalism_             = Model::Formalism::NEWTONIAN;

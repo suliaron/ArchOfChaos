@@ -12,6 +12,25 @@
 #include <string>     // std::string
 
 /**
+ * @brief Returns the name of a problem type.
+ *
+ * @param problem Problem type.
+ * @return Name of the problem type.
+ */
+const char *ProblemTypeToString(ProblemType problem) noexcept
+{
+    switch (problem) {
+        case ProblemType::CRTBP2D:
+            return "CRTBP2D";
+
+        case ProblemType::CRTBP3D:
+            return "CRTBP3D";
+    }
+
+    return "UNKNOWN";
+}
+
+/**
  * @brief Returns the name of a run mode.
  *
  * @param mode Run mode.
@@ -86,6 +105,24 @@ void InitData::Trim(std::string &text)
     }
 
     text = std::string(first, last);
+}
+
+ProblemType InitData::ParseProblemType(const std::string &text)
+{
+    std::string problem(text);
+
+    std::transform(problem.begin(), problem.end(), problem.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+    if (problem == "CRTBP2D") {
+        return ProblemType::CRTBP2D;
+    }
+
+    if (problem == "CRTBP3D") {
+        return ProblemType::CRTBP3D;
+    }
+
+    throw std::runtime_error("Unknown problem type: " + text);
 }
 
 RunMode InitData::parseRunMode(const std::string &text)
@@ -191,6 +228,11 @@ void InitData::parseLine(const std::string &line)
     }
 
     // Parse enumeration values.
+    if (key == "problem") {
+        problem_type_ = ParseProblemType(value);
+        return;
+    }
+
     if (key == "mode") {
         run_mode_ = parseRunMode(value);
         return;
@@ -509,7 +551,11 @@ void InitData::validate() const
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
 
-            if (elements_.i < 0.0 || elements_.i >= PLANAR_EPS) {
+            if (elements_.i < 0.0 || elements_.i > astro::pi) {
+                throw std::runtime_error("Inclination must satisfy 0 <= i <= pi.");
+            }
+
+            if (problem_type_ == ProblemType::CRTBP2D && elements_.i >= PLANAR_EPS) {
                 throw std::runtime_error("CRTBP2D requires inclination 0 <= i < PLANAR_EPS.");
             }
 
@@ -541,10 +587,13 @@ void InitData::validate() const
                 throw std::runtime_error("Eccentricity must satisfy 0 <= e < 1.");
             }
 
-            if (elements_.i < 0.0 || elements_.i >= PLANAR_EPS) {
-                throw std::runtime_error("CRTBP2D requires inclination 0 <= i < PLANAR_EPS.");
+            if (elements_.i < 0.0 || elements_.i > astro::pi) {
+                throw std::runtime_error("Inclination must satisfy 0 <= i <= pi.");
             }
 
+            if (problem_type_ == ProblemType::CRTBP2D && elements_.i >= PLANAR_EPS) {
+                throw std::runtime_error("CRTBP2D requires inclination 0 <= i < PLANAR_EPS.");
+            }
             break;
 
         case RunMode::GRID: {
@@ -746,6 +795,7 @@ void InitData::print(std::ostream &os) const
     os << "Initialization data\n";
     os << "----------------------------------------\n";
 
+    os << "problem       : " << ProblemTypeToString(problem_type_) << '\n';
     os << "run mode      : " << runModeToString(run_mode_) << '\n';
     os << "indicator     : " << Model::indicatorTypeToString(indicator_) << '\n';
     os << "formalism     : " << Model::formalismToString(formalism_) << '\n';

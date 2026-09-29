@@ -1,9 +1,15 @@
 #pragma once
 
 #include <cstddef>  // std::size_t
+#include <limits>   // std::numeric_limits
 #include <memory>   // std::make_unique, std::unique_ptr
 #include <ostream>  // std::ostream
 #include <string>   // std::string
+
+// forward declaration:
+namespace astro {
+    struct State;
+}
 
 /**
  * @brief Abstract base class for dynamical models.
@@ -52,6 +58,12 @@ class Model {
      */
     using rhs_t = void (Model::*)(double t, const double *y, double *dydt, void *par) const;
 
+    Model(Formalism formalism, IndicatorType indicator) :
+        formalism_(formalism),
+        indicator_(indicator)
+    {
+    }
+
     /**
      * @brief Virtual destructor.
      */
@@ -76,6 +88,74 @@ class Model {
     {
         return indicator_;
     }
+
+    /**
+     * @brief Calculates the Jacobi constant of the system.
+     *
+     * @details This is a virtual fallback method. Derived classes should override
+     * this function to provide actual computation. If a derived model does not
+     * support or define the Jacobi constant, this default implementation returns NaN.
+     *
+     * @return The calculated Jacobi constant, or `std::numeric_limits<double>::quiet_NaN()`
+     *         if not applicable/defined for the specific model.
+     */
+    virtual double calcJacobiConstant() const noexcept
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    /**
+     * @brief Initializes the Jacobi constant.
+     *
+     * Computes the Jacobi constant of the current state and stores it
+     * both as the initial and current value.
+     */
+    void initializeJacobiConstant() noexcept
+    {
+        cj_ = calcJacobiConstant();
+        c0_ = cj_;
+    }
+
+    /**
+     * @brief Updates the current Jacobi constant.
+     */
+    void updateJacobiConstant() noexcept
+    {
+        cj_ = calcJacobiConstant();
+    }
+
+    /**
+     * @brief Returns the model-specific parameter block.
+     *
+     * The returned pointer can be passed directly to the numerical
+     * integrator and the model right-hand-side functions.
+     *
+     * @return Pointer to the model-specific parameters.
+     */
+    virtual void *getParams() noexcept = 0;
+
+    /**
+     * @brief Converts a heliocentric inertial Cartesian state to the model state.
+     *
+     * @param state Heliocentric inertial Cartesian state.
+     * @param a2 Constant distance between the primary bodies [AU].
+     * @param n Mean motion of the primary bodies [rad/day].
+     */
+    virtual void inertialToCRTBP(const astro::State &state, double a2, double n) = 0;
+
+    /**
+     * @brief Converts the model state from velocity variables to Hamiltonian
+     *        canonical variables.
+     */
+    virtual void velocityToHamiltonian() noexcept = 0;
+
+    /**
+     * @brief Converts the current Hamiltonian state to Newtonian
+     *        position-velocity variables.
+     *
+     * @param y_out Output Newtonian state vector.
+     */
+    virtual void hamiltonianToNewtonian(double *y_out) const noexcept = 0;
 
     /**
      * @brief Evaluates the currently selected right-hand side.
@@ -190,6 +270,26 @@ class Model {
     }
 
     /**
+     * @brief Returns the initial Jacobi constant.
+     *
+     * @return Initial Jacobi constant.
+     */
+    double getC0() const noexcept
+    {
+        return c0_;
+    }
+
+    /**
+     * @brief Returns the current Jacobi constant.
+     *
+     * @return Current Jacobi constant.
+     */
+    double getCJ() const noexcept
+    {
+        return cj_;
+    }
+
+    /**
      * @brief Evaluates the equations of motion.
      *
      * @param t Current time.
@@ -219,6 +319,26 @@ class Model {
     virtual void printState(std::ostream &os, double t, const double *y) const = 0;
 
    protected:
+    /**
+     * @brief Sets the initial Jacobi constant.
+     *
+     * @param value Initial Jacobi constant.
+     */
+    void setC0(double value) noexcept
+    {
+        c0_ = value;
+    }
+
+    /**
+     * @brief Sets the current Jacobi constant.
+     *
+     * @param value Current Jacobi constant.
+     */
+    void setCJ(double value) noexcept
+    {
+        cj_ = value;
+    }
+
     Formalism                 formalism_ = Formalism::NEWTONIAN;
     IndicatorType             indicator_ = IndicatorType::NONE;
     double                    t_         = 0.0;
@@ -226,4 +346,8 @@ class Model {
     std::size_t               n_var_     = 0;
     std::string               name_;
     std::unique_ptr<double[]> y_;
+
+   private:
+    double c0_ = std::numeric_limits<double>::quiet_NaN();
+    double cj_ = std::numeric_limits<double>::quiet_NaN();
 };
