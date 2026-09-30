@@ -12,7 +12,6 @@ CRTBP2D::CRTBP2D(double mu, Model::Formalism formalism, Model::IndicatorType ind
 {
     setName("Planar CRTBP");
 
-    t_         = 0.0;  /// Elapsed dimensionless CRTBP time
     param_.mu  = mu;
     formalism_ = formalism;
     indicator_ = indicator;

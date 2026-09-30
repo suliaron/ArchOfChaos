@@ -18,7 +18,7 @@ namespace io {
     /**
      * @brief Number of digits written after the decimal point in scientific notation.
      */
-    inline constexpr int DATA_PRECISION = 10;
+    inline constexpr int DATA_PRECISION = 11;
 
     /**
      * @brief Describes one column of a numerical output table.

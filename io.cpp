@@ -583,15 +583,10 @@ namespace io {
     void writeOutputHeader(std::ostream &out, const std::filesystem::path &inputPath, const InitData &init)
     {
         writeProgramInformation(out, inputPath, init);
-
         out << "#\n";
-
         writeInputFileCopy(out, inputPath);
-
         out << "#\n";
-
         writeOutputStructure(out, init);
-
         out << "#\n";
         out << "# ==============================================================================\n";
         out << "# DATA\n";
@@ -698,7 +693,7 @@ namespace io {
             if (!column.unit.empty()) {
                 label += " [" + column.unit + "]";
             }
-            out << std::left << std::setw(DATA_FIELD_WIDTH) << label;
+            out << std::left << std::setw(DATA_FIELD_WIDTH) << label << ' ';
         }
         out << '\n';
 
@@ -726,6 +721,7 @@ namespace io {
                 if (init.getProblemType() == ProblemType::CRTBP3D) {
                     columns.push_back({"vz", "-", "Dimensionless rotating-frame z velocity"});
                 }
+                columns.push_back({"CJ", "-", "Jacobi constant"});
 
                 break;
                 // -----------------------------------------------------------------

@@ -51,6 +51,16 @@ struct CommandLineOptions {
 };
 
 /**
+ * @brief Prints program version information.
+ */
+void printVersion();
+
+/**
+ * @brief Prints the command-line help.
+ */
+void printHelp();
+
+/**
  * @brief Parses command-line arguments.
  *
  * Processes command-line options related to input and output files and
